@@ -2,16 +2,15 @@ from threading import Thread
 
 from kivy.clock import Clock
 from kivy.metrics import dp
-from kivymd.uix.button import MDRaisedButton
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.gridlayout import MDGridLayout
-from kivymd.uix.label import MDIcon, MDLabel
+from kivymd.uix.label import MDLabel
 
 from app.core.elm_pid_registry import ELM_EMULATOR_PIDS
 from app.core.measurement_mapper import measurement_from_readings
 from app.core.theme import AMBER, BLUE, GREEN, MUTED, RED, TEXT, status_color, with_alpha
 from app.screens.base_screen import BaseScreen
-from app.widgets.ui_components import CleanMetricCard, GlowCard, HeaderBlock, SectionLabel
+from app.widgets.ui_components import GlowCard, HeaderBlock, IconButton, MetricCard, SectionLabel, SvgIcon
 
 
 PRIMARY_METRIC_KEYS = ("rpm", "speed", "coolant_temp", "hybrid_soc")
@@ -99,13 +98,10 @@ class DashboardScreen(BaseScreen):
 
         top = MDBoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
         top.add_widget(
-            MDIcon(
-                icon="access-point",
-                theme_text_color="Custom",
-                text_color=BLUE,
-                size_hint_x=None,
-                width=dp(28),
-                font_size=dp(22),
+            SvgIcon(
+                icon_name="access-point",
+                icon_color=BLUE,
+                size=(dp(24), dp(24)),
             )
         )
         copy = MDBoxLayout(orientation="vertical", spacing=dp(1))
@@ -130,13 +126,11 @@ class DashboardScreen(BaseScreen):
         copy.add_widget(self.message)
         top.add_widget(copy)
 
-        self.refresh_button = MDRaisedButton(
+        self.refresh_button = IconButton(
             text="Actualiser",
-            icon="refresh",
-            md_bg_color=with_alpha(BLUE, 0.82),
+            icon_name="refresh",
+            fill_color=with_alpha(BLUE, 0.82),
             text_color=TEXT,
-            size_hint=(1, None),
-            height=dp(46),
             on_release=lambda *_: self.refresh(),
         )
 
@@ -169,7 +163,14 @@ class DashboardScreen(BaseScreen):
 
         self.loading = True
         self.refresh_button.disabled = True
-        self.refresh_button.text = "Lecture..."
+        self.refresh_button.set_button(
+            text="Lecture...",
+            icon_name="refresh",
+            text_color=TEXT,
+            icon_color=TEXT,
+            fill_color=with_alpha(BLUE, 0.82),
+            line_color=with_alpha(BLUE, 0),
+        )
         self.message.text = "Lecture ECU en cours..."
         Thread(target=self._read_worker, daemon=True).start()
 
@@ -183,7 +184,14 @@ class DashboardScreen(BaseScreen):
     def _finish_read(self, readings, error):
         self.loading = False
         self.refresh_button.disabled = False
-        self.refresh_button.text = "Actualiser"
+        self.refresh_button.set_button(
+            text="Actualiser",
+            icon_name="refresh",
+            text_color=TEXT,
+            icon_color=TEXT,
+            fill_color=with_alpha(BLUE, 0.82),
+            line_color=with_alpha(BLUE, 0),
+        )
         self._update_connection_status()
         if error is not None:
             self.message.text = str(error)
@@ -247,13 +255,10 @@ class DashboardScreen(BaseScreen):
         color = status_color(severity)
         row = MDBoxLayout(size_hint_y=None, height=dp(56), spacing=dp(8))
         row.add_widget(
-            MDIcon(
-                icon="check-circle-outline" if severity == "normal" else "alert-outline",
-                theme_text_color="Custom",
-                text_color=color,
-                size_hint_x=None,
-                width=dp(28),
-                font_size=dp(20),
+            SvgIcon(
+                icon_name="check-circle-outline" if severity == "normal" else "alert-outline",
+                icon_color=color,
+                size=(dp(20), dp(20)),
             )
         )
         copy = MDBoxLayout(orientation="vertical", spacing=dp(1))
@@ -349,7 +354,7 @@ class DashboardScreen(BaseScreen):
         return "Normal"
 
     def _build_metric_card(self, pid):
-        return CleanMetricCard(
+        return MetricCard(
             title=self._card_label(pid.label),
             icon=pid.icon,
             unit=pid.unit,

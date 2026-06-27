@@ -1,72 +1,112 @@
+from kivy.animation import Animation
 from kivy.metrics import dp
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.label import MDIcon, MDLabel
 
-from app.core.theme import BLUE, GREEN, MUTED, RED, TEXT, with_alpha
+from app.core.theme import BLUE, GREEN, RED, TEXT, with_alpha
 from app.widgets.ui_components import Badge, GlowCard
+
+CONNECTED_ICON = (0, 200 / 255, 83 / 255, 1)
+DISCONNECTED_ICON = (77 / 255, 140 / 255, 1, 1)
+SUBTITLE = (154 / 255, 168 / 255, 199 / 255, 1)
 
 
 class StatusCard(GlowCard):
     def __init__(self, title: str, value: str = "-", helper: str = "", **kwargs):
         super().__init__(accent=GREEN, **kwargs)
         self.size_hint_y = None
-        self.height = dp(92)
-        self.orientation = "horizontal"
-        self.spacing = dp(12)
-        self.padding = dp(14)
+        self.height = dp(128)
+        self.padding = (dp(24), dp(20), dp(24), dp(20))
+        self.spacing = dp(0)
+        self.radius = [dp(18)]
+        self._live_pulse = None
 
-        icon_box = MDBoxLayout(
+        row = MDBoxLayout(adaptive_height=True, spacing=dp(16), pos_hint={"center_y": 0.5})
+
+        self.icon = MDIcon(
+            icon="wifi",
+            theme_text_color="Custom",
+            text_color=DISCONNECTED_ICON,
             size_hint=(None, None),
-            size=(dp(48), dp(48)),
-            md_bg_color=with_alpha(GREEN, 0.12),
+            size=(dp(30), dp(30)),
+            font_size=dp(30),
+        )
+        self.icon.pos_hint = {"center_y": 0.5}
+        row.add_widget(self.icon)
+
+        copy = MDBoxLayout(
+            orientation="vertical",
+            adaptive_height=True,
+            spacing=dp(8),
             pos_hint={"center_y": 0.5},
         )
-        icon_box.add_widget(
-            MDIcon(
-                icon="wifi",
-                theme_text_color="Custom",
-                text_color=GREEN,
-                halign="center",
-                valign="center",
-                font_size=dp(26),
-            )
-        )
-        self.add_widget(icon_box)
-
-        copy = MDBoxLayout(orientation="vertical", spacing=dp(2))
         self.title_label = MDLabel(
             text=title,
             theme_text_color="Custom",
             text_color=TEXT,
-            font_style="Subtitle1",
+            font_style="H6",
             bold=True,
+            adaptive_height=True,
         )
-        self.value_label = MDLabel(
-            text=value,
+        self.protocol_label = MDLabel(
+            text="ELM327 TCP/IP",
             theme_text_color="Custom",
-            text_color=MUTED,
-            font_style="Caption",
+            text_color=with_alpha(TEXT, 0.82),
+            font_style="Body2",
+            adaptive_height=True,
         )
         self.helper_label = MDLabel(
             text=helper,
             theme_text_color="Custom",
-            text_color=MUTED,
+            text_color=SUBTITLE,
             font_style="Caption",
+            adaptive_height=True,
         )
         copy.add_widget(self.title_label)
-        copy.add_widget(self.value_label)
+        copy.add_widget(self.protocol_label)
         copy.add_widget(self.helper_label)
-        self.add_widget(copy)
+        row.add_widget(copy)
 
+        badge_box = MDBoxLayout(
+            adaptive_height=True,
+            size_hint_x=1,
+            spacing=dp(8),
+            pos_hint={"center_y": 0.5},
+        )
+        badge_box.add_widget(MDBoxLayout())
+        self.live_dot = MDLabel(
+            text="•",
+            theme_text_color="Custom",
+            text_color=GREEN,
+            font_style="H6",
+            bold=True,
+            size_hint=(None, None),
+            size=(dp(14), dp(20)),
+            opacity=0,
+        )
+        badge_box.add_widget(self.live_dot)
         self.badge = Badge("LIVE" if value.lower().startswith("connect") else "OFF", GREEN)
-        self.badge.pos_hint = {"center_y": 0.5}
-        self.add_widget(self.badge)
+        badge_box.add_widget(self.badge)
+        row.add_widget(badge_box)
+
+        self.add_widget(row)
+        self.set_value(value, helper)
 
     def set_value(self, value: str, helper: str = ""):
         connected = value.lower().startswith("connect")
         color = GREEN if connected else RED
         self.title_label.text = "Connecte" if connected else "Hors ligne"
-        self.value_label.text = value
         self.helper_label.text = helper
-        self.badge.set_badge("LIVE" if connected else "OFF", color)
-        self.line_color = with_alpha(color, 0.65)
+        self.icon.text_color = CONNECTED_ICON if connected else DISCONNECTED_ICON
+        self.badge.set_badge("LIVE" if connected else "OFF", color if connected else BLUE)
+        self.line_color = with_alpha(color if connected else BLUE, 0.65)
+        self._sync_live_pulse(connected)
+
+    def _sync_live_pulse(self, connected: bool):
+        Animation.cancel_all(self.live_dot, "opacity")
+        self.live_dot.opacity = 1 if connected else 0
+        if not connected:
+            return
+        pulse = Animation(opacity=0.32, d=0.7, t="in_out_sine") + Animation(opacity=1, d=0.7, t="in_out_sine")
+        pulse.repeat = True
+        pulse.start(self.live_dot)

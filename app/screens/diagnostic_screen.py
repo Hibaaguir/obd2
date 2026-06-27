@@ -2,15 +2,15 @@ from threading import Thread
 
 from kivy.clock import Clock
 from kivy.metrics import dp
-from kivymd.uix.button import MDFlatButton, MDRaisedButton
+from kivymd.uix.button import MDFlatButton
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.dialog import MDDialog
-from kivymd.uix.label import MDIcon, MDLabel
+from kivymd.uix.label import MDLabel
 
 from app.core.measurement_mapper import measurement_from_readings
 from app.core.theme import AMBER, BLUE, GREEN, MUTED, RED, TEXT, status_color, with_alpha
 from app.screens.base_screen import BaseScreen
-from app.widgets.ui_components import Badge, GlowCard, HeaderBlock, SectionLabel
+from app.widgets.ui_components import Badge, GlowCard, HeaderBlock, IconButton, SectionLabel, SvgIcon
 
 
 class DiagnosticScreen(BaseScreen):
@@ -30,37 +30,32 @@ class DiagnosticScreen(BaseScreen):
         layout.add_widget(self.summary)
         self._render_summary("En attente", "Lance une lecture pour analyser l'ECU.", "normal", 0, 0, 0)
 
-        self.report_button = MDRaisedButton(
+        self.report_button = IconButton(
             text="  Generer le rapport intelligent",
-            icon="file-document-outline",
-            md_bg_color=with_alpha(BLUE, 0.86),
+            icon_name="file-document-outline",
+            fill_color=with_alpha(BLUE, 0.86),
             text_color=TEXT,
-            size_hint=(1, None),
-            height=dp(48),
             on_release=self.generate_report,
         )
         layout.add_widget(self.report_button)
 
         actions = MDBoxLayout(adaptive_height=True, spacing=dp(10))
         actions.add_widget(
-            MDRaisedButton(
+            IconButton(
                 text="  Lecture",
-                icon="magnify-scan",
-                md_bg_color=with_alpha(BLUE, 0.18),
+                icon_name="magnify-scan",
+                fill_color=with_alpha(BLUE, 0.18),
                 text_color=TEXT,
-                size_hint=(1, None),
-                height=dp(48),
                 on_release=self.scan_codes,
             )
         )
         actions.add_widget(
-            MDRaisedButton(
+            IconButton(
                 text="  Effacer codes",
-                icon="delete-outline",
-                md_bg_color=with_alpha(RED, 0.12),
+                icon_name="delete-outline",
+                fill_color=with_alpha(RED, 0.12),
+                line_color=with_alpha(RED, 0),
                 text_color=RED,
-                size_hint=(1, None),
-                height=dp(48),
                 on_release=self.confirm_clear_codes,
             )
         )
@@ -208,13 +203,10 @@ class DiagnosticScreen(BaseScreen):
         self.summary.line_color = with_alpha(color, 0.75)
         row = MDBoxLayout(adaptive_height=True, spacing=dp(12))
         row.add_widget(
-            MDIcon(
-                icon="check-circle-outline" if severity == "normal" else "close-circle-outline",
-                theme_text_color="Custom",
-                text_color=color,
-                size_hint_x=None,
-                width=dp(48),
-                font_size=dp(42),
+            SvgIcon(
+                icon_name="check-circle-outline" if severity == "normal" else "close-circle-outline",
+                icon_color=color,
+                size=(dp(34), dp(34)),
             )
         )
         copy = MDBoxLayout(orientation="vertical", adaptive_height=True, spacing=dp(6))
@@ -256,13 +248,10 @@ class DiagnosticScreen(BaseScreen):
         card.height = dp(104)
         row = MDBoxLayout(spacing=dp(8))
         row.add_widget(
-            MDIcon(
-                icon="check-circle-outline" if severity == "normal" else "alert-outline",
-                theme_text_color="Custom",
-                text_color=color,
-                size_hint_x=None,
-                width=dp(28),
-                font_size=dp(22),
+            SvgIcon(
+                icon_name="check-circle-outline" if severity == "normal" else "alert-outline",
+                icon_color=color,
+                size=(dp(22), dp(22)),
             )
         )
         copy = MDBoxLayout(orientation="vertical", spacing=dp(4))

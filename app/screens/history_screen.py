@@ -2,11 +2,11 @@ from kivy.metrics import dp
 from kivymd.uix.button import MDRaisedButton
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.gridlayout import MDGridLayout
-from kivymd.uix.label import MDIcon, MDLabel
+from kivymd.uix.label import MDLabel
 
 from app.core.theme import AMBER, BLUE, GREEN, MUTED, RED, TEXT, with_alpha
 from app.screens.base_screen import BaseScreen
-from app.widgets.ui_components import Badge, GlowCard, HeaderBlock, MiniTrend, SectionLabel
+from app.widgets.ui_components import Badge, GlowCard, HeaderBlock, MiniTrend, SectionLabel, SvgIcon
 
 
 class HistoryScreen(BaseScreen):
@@ -127,13 +127,10 @@ class HistoryScreen(BaseScreen):
         card.height = dp(246)
         header = MDBoxLayout(adaptive_height=True, spacing=dp(8))
         header.add_widget(
-            MDIcon(
-                icon="clock-outline",
-                theme_text_color="Custom",
-                text_color=BLUE,
-                size_hint_x=None,
-                width=dp(24),
-                font_size=dp(18),
+            SvgIcon(
+                icon_name="clock-outline",
+                icon_color=BLUE,
+                size=(dp(18), dp(18)),
             )
         )
         header.add_widget(
