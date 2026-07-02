@@ -4,14 +4,14 @@ from pathlib import Path
 
 from kivy.graphics import Color, Line, PopMatrix, PushMatrix, RoundedRectangle, Scale, Translate
 from kivy.graphics.svg import Svg
-from kivy.metrics import dp
+from kivy.metrics import dp, sp
 from kivy.properties import BooleanProperty, ListProperty, ObjectProperty, StringProperty
 from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.widget import Widget
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.card import MDCard
-from kivymd.uix.label import MDLabel
+from kivymd.uix.label import MDIcon, MDLabel
 
 from app.core.icons import icon_path
 from app.core.theme import BLUE, BORDER, DIM, MUTED, PANEL_BG, TEXT, with_alpha
@@ -256,45 +256,52 @@ class MetricCard(MDCard):
         self.accent = accent
         self.orientation = "vertical"
         self.size_hint_y = None
-        self.adaptive_height = True
-        self.padding = (dp(16), dp(14), dp(16), dp(14))
+        self.height = dp(146)
+        self.padding = (dp(16), dp(16), dp(16), dp(16))
         self.spacing = dp(10)
-        self.radius = [dp(20)]
+        self.radius = [dp(18)]
         self.elevation = 0
         self.md_bg_color = PANEL_BG
         self.line_color = with_alpha(accent, 0.22)
-        self.bind(minimum_height=self.setter("height"))
 
-        header = MDBoxLayout(adaptive_height=True, spacing=dp(8))
-        self.icon_label = SvgIcon(
-            icon_name=icon,
-            icon_color=accent,
-            size=(dp(18), dp(20)),
+        header = MDBoxLayout(size_hint_y=None, height=dp(26), spacing=dp(8))
+        self.icon_label = MDIcon(
+            icon=icon,
+            theme_text_color="Custom",
+            text_color=accent,
+            font_size=dp(22),
+            size_hint=(None, None),
+            size=(dp(22), dp(22)),
+            halign="center",
+            valign="middle",
         )
+        self.icon_label.bind(size=self._sync_icon_size)
         self.title_label = MDLabel(
             text=title,
             theme_text_color="Custom",
             text_color=with_alpha(TEXT, 0.9),
             font_style="Subtitle2",
+            font_size=sp(15),
             bold=True,
             halign="left",
             valign="middle",
-            adaptive_height=True,
         )
         self.title_label.bind(width=self._sync_wrapped_text)
         header.add_widget(self.icon_label)
         header.add_widget(self.title_label)
 
-        value_block = MDBoxLayout(orientation="vertical", adaptive_height=True, spacing=dp(4))
+        value_block = MDBoxLayout(orientation="vertical", size_hint_y=None, height=dp(50), spacing=dp(3))
         self.value_label = MDLabel(
             text=value,
             theme_text_color="Custom",
             text_color=TEXT,
             font_style="H4",
+            font_size=sp(30),
             bold=True,
             halign="left",
             valign="middle",
-            adaptive_height=True,
+            size_hint_y=None,
+            height=dp(31),
         )
         self.value_label.bind(width=self._sync_wrapped_text)
         self.unit_label = MDLabel(
@@ -302,18 +309,18 @@ class MetricCard(MDCard):
             theme_text_color="Custom",
             text_color=with_alpha(TEXT, 0.62),
             font_style="Subtitle2",
+            font_size=sp(13),
             bold=True,
             halign="left",
             valign="middle",
-            adaptive_height=True,
+            size_hint_y=None,
+            height=dp(16),
         )
         self.unit_label.bind(width=self._sync_wrapped_text)
         value_block.add_widget(self.value_label)
         value_block.add_widget(self.unit_label)
 
-        spacer = MDBoxLayout()
-
-        footer = MDBoxLayout(adaptive_height=True, spacing=dp(8))
+        footer = MDBoxLayout(size_hint_y=None, height=dp(18), spacing=dp(8))
         self.status_dot = MDLabel(
             text="•",
             theme_text_color="Custom",
@@ -334,7 +341,6 @@ class MetricCard(MDCard):
             bold=True,
             halign="left",
             valign="middle",
-            adaptive_height=True,
         )
         self.status_label.bind(width=self._sync_wrapped_text)
         footer.add_widget(self.status_dot)
@@ -342,27 +348,30 @@ class MetricCard(MDCard):
 
         self.add_widget(header)
         self.add_widget(value_block)
-        self.add_widget(spacer)
         self.add_widget(footer)
         self.set_data(value, unit, status)
 
     def set_data(self, value: str, unit: str = "", status: str = "En attente", accent=None):
         value_text = str(value)
         self.value_label.text = value_text
-        self.value_label.font_style = "H4" if len(value_text) > 7 else "H3"
+        self.value_label.font_style = "H5" if len(value_text) > 7 else "H4"
         self.unit_label.text = unit
         self.status_label.text = status
         self._apply_accent(accent or self.accent)
 
     def _apply_accent(self, accent):
         self.accent = accent
-        self.icon_label.icon_color = accent
+        self.icon_label.text_color = accent
         self.status_dot.text_color = accent
         self.line_color = with_alpha(accent, 0.22)
 
     @staticmethod
     def _sync_wrapped_text(label, width):
         label.text_size = (width, None)
+
+    @staticmethod
+    def _sync_icon_size(icon, size):
+        icon.text_size = size
 
 
 class Badge(MDCard):

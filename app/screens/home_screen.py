@@ -4,6 +4,7 @@ from kivy.clock import Clock
 from kivy.graphics import Color, Line, RoundedRectangle
 from kivy.metrics import dp, sp
 from kivy.properties import BooleanProperty, ListProperty
+from kivy.uix.anchorlayout import AnchorLayout
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.label import MDIcon, MDLabel
 from kivymd.uix.textfield import MDTextField
@@ -215,17 +216,17 @@ class HomeScreen(BaseScreen):
     def _build_header(self):
         header = MDBoxLayout(
             orientation="horizontal",
-            adaptive_height=True,
+            size_hint_y=None,
+            height=dp(52),
             spacing=dp(14),
-            padding=(0, 0, 0, dp(2)),
+            padding=(0, dp(2), 0, dp(6)),
         )
 
-        icon_wrap = MDBoxLayout(
-            orientation="vertical",
-            size_hint=(None, None),
-            size=(dp(48), dp(48)),
-            padding=0,
-            pos_hint={"center_y": 0.5},
+        icon_wrap = AnchorLayout(
+            anchor_x="center",
+            anchor_y="center",
+            size_hint=(None, 1),
+            width=dp(26),
         )
         icon_wrap.add_widget(
             MDIcon(
@@ -235,12 +236,18 @@ class HomeScreen(BaseScreen):
                 size_hint=(None, None),
                 size=(dp(26), dp(26)),
                 font_size=dp(26),
-                pos_hint={"center_x": 0.5, "center_y": 0.5},
+                halign="center",
+                valign="middle",
             )
         )
         header.add_widget(icon_wrap)
 
-        copy = MDBoxLayout(orientation="vertical", adaptive_height=True, spacing=dp(1), pos_hint={"center_y": 0.5})
+        copy = MDBoxLayout(
+            orientation="vertical",
+            adaptive_height=True,
+            spacing=0,
+            pos_hint={"center_y": 0.5},
+        )
         copy.add_widget(
             MDLabel(
                 text="Connexion OBD2",
