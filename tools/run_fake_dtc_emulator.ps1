@@ -1,3 +1,3 @@
 Set-Location $PSScriptRoot
 $env:PYTHONPATH = $PSScriptRoot
-elm -s car -n 35000
+python .\start_fake_dtc_emulator.py

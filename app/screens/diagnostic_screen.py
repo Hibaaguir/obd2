@@ -1,7 +1,7 @@
 from threading import Thread
 
 from kivy.clock import Clock
-from kivy.metrics import dp
+from kivy.metrics import dp, sp
 from kivy.properties import BooleanProperty
 from kivy.uix.anchorlayout import AnchorLayout
 from kivymd.uix.boxlayout import MDBoxLayout
@@ -132,9 +132,9 @@ class DiagnosticScreen(BaseScreen):
 
         self.summary = GlowCard(accent=BLUE)
         self.summary.size_hint_y = None
-        self.summary.height = dp(138)
+        self.summary.height = dp(154)
         layout.add_widget(self.summary)
-        self._render_summary("En attente", "Lance une lecture pour analyser l'ECU.", "normal", 0, 0, 0)
+        self._render_summary("En attente", "Lance une lecture pour analyser l'ECU.", "normal", 0, 0, 0, 0)
 
         actions = MDBoxLayout(adaptive_height=True, spacing=dp(12))
         actions.add_widget(
@@ -211,7 +211,7 @@ class DiagnosticScreen(BaseScreen):
 
         normal_count = sum(1 for item in diagnostics if item.severity == "normal")
         warning_count = sum(1 for item in diagnostics if item.severity == "warning")
-        critical_count = sum(1 for item in diagnostics if item.severity == "critical") + len(codes)
+        critical_count = sum(1 for item in diagnostics if item.severity == "critical")
         title = {
             "normal": "Systeme normal",
             "warning": "Attention requise",
@@ -222,7 +222,7 @@ class DiagnosticScreen(BaseScreen):
             "warning": "Points a surveiller detectes. Controle recommande.",
             "critical": "Anomalie critique detectee. Verification immediate recommandee.",
         }.get(overall, "Analyse terminee.")
-        self._render_summary(title, message, overall, normal_count, warning_count, critical_count)
+        self._render_summary(title, message, overall, normal_count, warning_count, critical_count, len(codes))
         self._render_results(diagnostics)
         self._render_codes(codes)
 
@@ -302,14 +302,54 @@ class DiagnosticScreen(BaseScreen):
     def clear_codes(self, *_):
         if self.clear_dialog:
             self.clear_dialog.dismiss()
+            self.clear_dialog = None
         service = self.app.obd_service
         try:
             success = service.clear_error_codes()
         except Exception as exc:
             self._set_message("Effacement impossible", str(exc), "critical")
             return
-        message = "Codes defaut effaces." if success else "Effacement non confirme par l'ECU."
-        self._set_message("Codes effaces" if success else "Non confirme", message, "normal" if success else "warning")
+        if not success:
+            self._set_message(
+                "Non confirme",
+                "Effacement non confirme par l'ECU.",
+                "warning",
+            )
+            return
+
+        self.loading = True
+        self._set_message(
+            "Codes effaces",
+            "Effacement confirme. Actualisation du diagnostic en cours.",
+            "normal",
+        )
+        Thread(target=self._refresh_after_clear_worker, daemon=True).start()
+
+    def _refresh_after_clear_worker(self):
+        try:
+            service = self.app.obd_service
+            readings = service.read_live_data()
+            codes = service.read_error_codes()
+            Clock.schedule_once(
+                lambda *_: self._finish_clear_refresh(readings, codes, None),
+                0,
+            )
+        except Exception as exc:
+            Clock.schedule_once(
+                lambda *_, error=exc: self._finish_clear_refresh([], [], error),
+                0,
+            )
+
+    def _finish_clear_refresh(self, readings, codes, error):
+        self.loading = False
+        if error is not None:
+            self._set_message(
+                "Effacement confirme",
+                "Les codes ont ete effaces, mais la relecture du diagnostic a echoue.",
+                "warning",
+            )
+            return
+        self._finish_scan(readings, codes, None)
 
     def refresh(self):
         if not self.app.obd_service.is_connected():
@@ -318,33 +358,79 @@ class DiagnosticScreen(BaseScreen):
     def _render_empty_state(self):
         self.results_box.clear_widgets()
         self.codes_box.clear_widgets()
-        self.results_box.add_widget(self._analysis_summary_card("normal", "Aucune anomalie detectee."))
-        self.codes_box.add_widget(self._codes_summary_card(False, "Aucun code defaut actif."))
+        self.results_box.add_widget(
+            self._analysis_summary_card(
+                "normal",
+                "Aucune anomalie detectee.",
+                "Les mesures live et l'etat ECU ne signalent aucun point critique avec les donnees disponibles.",
+            )
+        )
+        self.codes_box.add_widget(
+            self._codes_summary_card(
+                False,
+                "Aucun code defaut actif.",
+                "Quand un DTC est present, l'application doit afficher le code, sa gravite et sa description.",
+            )
+        )
 
     def _render_results(self, diagnostics):
         self.results_box.clear_widgets()
         if not diagnostics:
-            self.results_box.add_widget(self._analysis_summary_card("normal", "Aucune anomalie detectee."))
+            self.results_box.add_widget(
+                self._analysis_summary_card(
+                    "normal",
+                    "Aucune anomalie detectee.",
+                    "Les mesures live sont coherentes avec un fonctionnement normal sur cet echantillon.",
+                )
+            )
             return
         overall = self.app.diagnostic_service.overall_severity(diagnostics)
-        message = {
-            "normal": "Aucune anomalie detectee.",
-            "warning": "Alerte detectee. Controle recommande.",
-            "critical": "Anomalie critique detectee.",
+        title = {
+            "normal": "Resultat global stable",
+            "warning": "Resultat global a surveiller",
+            "critical": "Resultat global critique",
+        }.get(overall, "Analyse terminee")
+        detail = {
+            "normal": "Aucune anomalie immediate n'a ete deduite des mesures live.",
+            "warning": "Certaines mesures meritent un controle ou une verification complementaire.",
+            "critical": "Des anomalies importantes ont ete detectees et doivent etre verifiees rapidement.",
         }.get(overall, "Analyse terminee.")
-        self.results_box.add_widget(self._analysis_summary_card(overall, message))
+        self.results_box.add_widget(self._analysis_summary_card(overall, title, detail))
+        for diagnostic in diagnostics:
+            self.results_box.add_widget(
+                self._analysis_detail_card(
+                    diagnostic.title,
+                    diagnostic.message,
+                    diagnostic.severity,
+                )
+            )
 
     def _render_codes(self, codes):
         self.codes_box.clear_widgets()
         if not codes:
-            self.codes_box.add_widget(self._codes_summary_card(False, "Aucun code defaut actif."))
+            self.codes_box.add_widget(
+                self._codes_summary_card(
+                    False,
+                    "Aucun code defaut actif.",
+                    "Aucun DTC n'est actuellement remonte par l'ECU.",
+                )
+            )
             return
-        self.codes_box.add_widget(self._codes_summary_card(True, f"{len(codes)} code(s) detecte(s)."))
+        critical_codes = sum(1 for code in codes if self._normalize_severity(code.severity) == "critical")
+        warning_codes = sum(1 for code in codes if self._normalize_severity(code.severity) == "warning")
+        summary = f"{len(codes)} code(s) detecte(s)."
+        detail = (
+            f"{critical_codes} critique(s), {warning_codes} a surveiller. "
+            "Chaque code ci-dessous doit afficher son identifiant, sa description et son niveau de gravite."
+        )
+        self.codes_box.add_widget(self._codes_summary_card(True, summary, detail))
+        for code in codes:
+            self.codes_box.add_widget(self._dtc_detail_card(code))
 
-    def _render_summary(self, title, message, severity, normal_count, warning_count, critical_count):
+    def _render_summary(self, title, message, severity, normal_count, warning_count, critical_count, dtc_count):
         color = status_color(severity)
         self.summary.clear_widgets()
-        self.summary.height = dp(138)
+        self.summary.height = dp(154)
         self.summary.padding = (dp(16), dp(16), dp(16), dp(16))
         self.summary.spacing = dp(12)
         self.summary.radius = [dp(18)]
@@ -368,40 +454,67 @@ class DiagnosticScreen(BaseScreen):
                 theme_text_color="Custom",
                 text_color=MUTED,
                 font_style="Caption",
-                size_hint_y=None,
-                height=dp(20),
+                adaptive_height=True,
             )
         )
 
-        badges = MDBoxLayout(size_hint_y=None, height=dp(28), spacing=dp(6))
-        badges.add_widget(Badge(f"{normal_count} normal", GREEN))
-        badges.add_widget(Badge(f"{warning_count} alerte", AMBER))
-        badges.add_widget(Badge(f"{critical_count} critique", RED))
+        badges = MDBoxLayout(size_hint_y=None, height=dp(36), spacing=dp(6))
+        badges.add_widget(self._summary_stat_badge(normal_count, "normal", GREEN))
+        badges.add_widget(self._summary_stat_badge(warning_count, "alerte", AMBER))
+        badges.add_widget(self._summary_stat_badge(critical_count, "critique", RED))
+        badges.add_widget(self._summary_stat_badge(dtc_count, "DTC", RED if dtc_count else BLUE))
         copy.add_widget(badges)
         self.summary.add_widget(copy)
 
     def _set_message(self, title, message, severity):
-        self._render_summary(title, message, severity, 0, 0, 0)
+        self._render_summary(title, message, severity, 0, 0, 0, 0)
 
-    def _analysis_summary_card(self, severity, message):
+    def _summary_stat_badge(self, count, label, color):
+        badge = MDCard(
+            orientation="vertical",
+            size_hint=(1, None),
+            height=dp(36),
+            radius=[dp(14)],
+            elevation=0,
+            md_bg_color=with_alpha(color, 0.16),
+            line_color=with_alpha(color, 0.55),
+            padding=(dp(6), 0, dp(6), 0),
+        )
+        text = MDLabel(
+            text=f"{count} {label}".upper(),
+            theme_text_color="Custom",
+            text_color=color,
+            font_style="Caption",
+            bold=True,
+            halign="center",
+            valign="middle",
+            shorten=True,
+            shorten_from="right",
+        )
+        text.bind(size=lambda label_widget, size: setattr(label_widget, "text_size", size))
+        badge.add_widget(text)
+        return badge
+
+    def _analysis_summary_card(self, severity, title, message):
         color = status_color(severity)
         card = GlowCard(accent=color)
         card.size_hint_y = None
-        card.height = dp(96)
+        card.height = dp(112)
         card.radius = [dp(18)]
         card.padding = (dp(16), dp(14), dp(16), dp(14))
         card.spacing = dp(8)
         header = MDBoxLayout(size_hint_y=None, height=dp(28), spacing=dp(8))
-        header.add_widget(
-            MDLabel(
-                text="Resultat de l'analyse",
-                theme_text_color="Custom",
-                text_color=TEXT,
-                font_style="Subtitle2",
-                bold=True,
-            )
+        title_label = MDLabel(
+            text=title,
+            theme_text_color="Custom",
+            text_color=TEXT,
+            font_style="Subtitle2",
+            bold=True,
         )
-        header.add_widget(Badge(self._severity_label(severity), color))
+        title_label.bind(size=lambda label, size: setattr(label, "text_size", size))
+        header.add_widget(title_label)
+        header.add_widget(MDBoxLayout())
+        header.add_widget(self._dtc_severity_badge(self._severity_label(severity), color))
         card.add_widget(header)
         card.add_widget(
             MDLabel(
@@ -414,30 +527,143 @@ class DiagnosticScreen(BaseScreen):
         )
         return card
 
-    def _codes_summary_card(self, has_codes, message):
-        color = RED if has_codes else GREEN
-        card = GlowCard(accent=RED)
+    def _analysis_detail_card(self, title, message, severity):
+        color = status_color(severity)
+        card = GlowCard(accent=color)
         card.size_hint_y = None
-        card.height = dp(96)
+        card.height = dp(108)
+        card.radius = [dp(18)]
+        card.padding = (dp(16), dp(14), dp(16), dp(14))
+        card.spacing = dp(10)
+
+        header = MDBoxLayout(size_hint_y=None, height=dp(28), spacing=dp(8))
+        title_label = MDLabel(
+            text=title,
+            theme_text_color="Custom",
+            text_color=TEXT if severity == "normal" else color,
+            font_style="Subtitle2",
+            bold=True,
+            size_hint_y=None,
+            height=dp(28),
+            valign="middle",
+            shorten=True,
+            shorten_from="right",
+        )
+        title_label.bind(size=lambda label, size: setattr(label, "text_size", size))
+        header.add_widget(title_label)
+        header.add_widget(MDBoxLayout())
+        header.add_widget(self._dtc_severity_badge(self._severity_label(severity), color))
+        card.add_widget(header)
+        card.add_widget(
+            MDLabel(
+                text=message,
+                theme_text_color="Custom",
+                text_color=MUTED,
+                font_style="Caption",
+                adaptive_height=True,
+            )
+        )
+        return card
+
+    def _codes_summary_card(self, has_codes, message, detail):
+        color = RED if has_codes else GREEN
+        card = GlowCard(accent=color)
+        card.size_hint_y = None
+        card.height = dp(116)
         card.radius = [dp(18)]
         card.padding = (dp(16), dp(14), dp(16), dp(14))
         card.spacing = dp(8)
         card.line_color = with_alpha(color, 0.75)
         header = MDBoxLayout(size_hint_y=None, height=dp(28), spacing=dp(8))
-        header.add_widget(
-            MDLabel(
-                text="Codes defaut DTC",
-                theme_text_color="Custom",
-                text_color=TEXT,
-                font_style="Subtitle2",
-                bold=True,
-            )
+        title_label = MDLabel(
+            text="Codes defaut DTC",
+            theme_text_color="Custom",
+            text_color=TEXT,
+            font_style="Subtitle2",
+            bold=True,
         )
-        header.add_widget(Badge("codes detectes" if has_codes else "aucun code", color))
+        title_label.bind(size=lambda label, size: setattr(label, "text_size", size))
+        header.add_widget(title_label)
+        header.add_widget(MDBoxLayout())
+        header.add_widget(Badge(f"{message.split()[0]} DTC" if has_codes else "aucun", color))
         card.add_widget(header)
         card.add_widget(
             MDLabel(
                 text=message,
+                theme_text_color="Custom",
+                text_color=MUTED,
+                font_style="Caption",
+                adaptive_height=True,
+            )
+        )
+        card.add_widget(
+            MDLabel(
+                text=detail,
+                theme_text_color="Custom",
+                text_color=with_alpha(MUTED, 0.82),
+                font_style="Caption",
+                adaptive_height=True,
+            )
+        )
+        return card
+
+    def _dtc_detail_card(self, code):
+        severity = self._normalize_severity(code.severity)
+        color = status_color(severity)
+        card = GlowCard(accent=color)
+        card.size_hint_y = None
+        card.height = dp(128)
+        card.radius = [dp(18)]
+        card.padding = (dp(16), dp(14), dp(16), dp(14))
+        card.spacing = dp(6)
+        card.line_color = with_alpha(color, 0.75)
+
+        header = MDBoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
+        identity = MDBoxLayout(orientation="vertical", spacing=dp(2))
+        code_label = MDLabel(
+            text=code.code,
+            theme_text_color="Custom",
+            text_color=color,
+            font_style="H6",
+            font_size=sp(22),
+            bold=True,
+            size_hint_y=None,
+            height=dp(24),
+            halign="left",
+            valign="middle",
+        )
+        code_label.bind(size=lambda label, size: setattr(label, "text_size", size))
+        identity.add_widget(code_label)
+        identity.add_widget(
+            MDLabel(
+                text=self._dtc_family_label(code.code),
+                theme_text_color="Custom",
+                text_color=with_alpha(MUTED, 0.88),
+                font_style="Caption",
+                size_hint_y=None,
+                height=dp(16),
+                halign="left",
+                valign="middle",
+            )
+        )
+        header.add_widget(identity)
+        header.add_widget(MDBoxLayout())
+        header.add_widget(self._dtc_severity_badge(self._severity_label(severity), color))
+        card.add_widget(header)
+
+        card.add_widget(
+            MDLabel(
+                text=self._dtc_title(code),
+                theme_text_color="Custom",
+                text_color=TEXT,
+                font_style="Subtitle2",
+                adaptive_height=True,
+                bold=True,
+            )
+        )
+        card.add_widget(
+            MDLabel(
+                text=self._dtc_summary(code.code, severity),
                 theme_text_color="Custom",
                 text_color=MUTED,
                 font_style="Caption",
@@ -449,6 +675,68 @@ class DiagnosticScreen(BaseScreen):
     @staticmethod
     def _severity_label(severity):
         return {"normal": "normal", "warning": "alerte", "critical": "critique"}.get(severity, severity)
+
+    @staticmethod
+    def _normalize_severity(severity):
+        normalized = (severity or "").strip().lower()
+        if normalized in {"critical", "critique", "elevee", "haute"}:
+            return "critical"
+        if normalized in {"warning", "alerte", "moyenne"}:
+            return "warning"
+        return "normal"
+
+    @staticmethod
+    def _dtc_family_label(code):
+        prefix = (code or "").strip().upper()[:1]
+        return {
+            "P": "motopropulseur",
+            "B": "carrosserie",
+            "C": "chassis",
+            "U": "reseau",
+        }.get(prefix, "systeme")
+
+    @classmethod
+    def _dtc_summary(cls, code, severity):
+        family = cls._dtc_family_label(code)
+        if severity == "critical":
+            return f"Defaut critique sur le systeme {family}; verification rapide recommandee."
+        if severity == "warning":
+            return f"Defaut a surveiller sur le systeme {family}; controle recommande."
+        return f"Code memorise sur le systeme {family}; aucun niveau critique detecte."
+
+    @staticmethod
+    def _dtc_title(code):
+        return code.description or "Description non disponible."
+
+    @staticmethod
+    def _dtc_severity_badge(text, color):
+        badge = MDCard(
+            orientation="vertical",
+            size_hint=(None, None),
+            height=dp(28),
+            radius=[dp(14)],
+            elevation=0,
+            md_bg_color=with_alpha(color, 0.16),
+            line_color=with_alpha(color, 0.55),
+            padding=(dp(14), 0, dp(14), 0),
+        )
+        anchor = AnchorLayout(anchor_x="center", anchor_y="center")
+        label = MDLabel(
+            text=text.upper(),
+            theme_text_color="Custom",
+            text_color=color,
+            font_style="Caption",
+            bold=True,
+            halign="center",
+            valign="middle",
+            size_hint=(None, None),
+        )
+        label.bind(texture_size=lambda widget, texture_size: setattr(badge, "width", texture_size[0] + dp(28)))
+        label.bind(texture_size=lambda widget, texture_size: setattr(widget, "size", texture_size))
+        anchor.add_widget(label)
+        badge.add_widget(anchor)
+        badge.width = dp(110)
+        return badge
 
     def _build_header(self):
         header = MDBoxLayout(

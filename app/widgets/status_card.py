@@ -15,8 +15,8 @@ class StatusCard(GlowCard):
     def __init__(self, title: str, value: str = "-", helper: str = "", **kwargs):
         super().__init__(accent=GREEN, **kwargs)
         self.size_hint_y = None
-        self.height = dp(128)
-        self.padding = (dp(24), dp(20), dp(24), dp(20))
+        self.height = dp(124)
+        self.padding = (dp(24), dp(16), dp(24), dp(16))
         self.spacing = dp(0)
         self.radius = [dp(18)]
         self._live_pulse = None
@@ -61,7 +61,9 @@ class StatusCard(GlowCard):
             text_color=SUBTITLE,
             font_style="Caption",
             adaptive_height=True,
+            size_hint_x=1,
         )
+        self.helper_label.bind(size=self._sync_text_size)
         copy.add_widget(self.title_label)
         copy.add_widget(self.protocol_label)
         copy.add_widget(self.helper_label)
@@ -75,7 +77,7 @@ class StatusCard(GlowCard):
         )
         badge_box.add_widget(MDBoxLayout())
         self.live_dot = MDLabel(
-            text="•",
+            text="*",
             theme_text_color="Custom",
             text_color=GREEN,
             font_style="H6",
@@ -110,3 +112,7 @@ class StatusCard(GlowCard):
         pulse = Animation(opacity=0.32, d=0.7, t="in_out_sine") + Animation(opacity=1, d=0.7, t="in_out_sine")
         pulse.repeat = True
         pulse.start(self.live_dot)
+
+    @staticmethod
+    def _sync_text_size(label, size):
+        label.text_size = (size[0], None)

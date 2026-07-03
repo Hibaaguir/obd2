@@ -386,7 +386,7 @@ class Badge(MDCard):
         self.line_color = with_alpha(color, 0.55)
         self.size_hint = (None, None)
         self.height = dp(28)
-        self.width = max(dp(86), dp(12) * len(text))
+        self.anchor = AnchorLayout(anchor_x="center", anchor_y="center")
         self.label = MDLabel(
             text=text.upper(),
             theme_text_color="Custom",
@@ -394,15 +394,30 @@ class Badge(MDCard):
             font_style="Caption",
             bold=True,
             halign="center",
+            valign="middle",
+            size_hint=(None, None),
+            shorten=True,
+            shorten_from="right",
         )
-        self.add_widget(self.label)
+        self.label.bind(texture_size=self._sync_size)
+        self.anchor.add_widget(self.label)
+        self.add_widget(self.anchor)
+        self._sync_size(self.label, self.label.texture_size)
 
     def set_badge(self, text: str, color=BLUE):
         self.label.text = text.upper()
         self.label.text_color = color
         self.md_bg_color = with_alpha(color, 0.16)
         self.line_color = with_alpha(color, 0.55)
-        self.width = max(dp(86), dp(12) * len(text))
+        self._sync_size(self.label, self.label.texture_size)
+
+    def _sync_size(self, _label, texture_size):
+        self.label.text_size = (None, None)
+        text_width = max(dp(42), texture_size[0])
+        text_height = max(dp(14), texture_size[1])
+        self.label.width = text_width
+        self.label.height = text_height
+        self.width = text_width + dp(22)
 
 
 class SectionLabel(MDBoxLayout):

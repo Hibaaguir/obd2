@@ -261,7 +261,7 @@ class HomeScreen(BaseScreen):
         )
         copy.add_widget(
             MDLabel(
-                text="Adaptateur ELM327 • TCP/IP",
+                text="Adaptateur ELM327 - TCP/IP",
                 theme_text_color="Custom",
                 text_color=SUBTITLE,
                 size_hint_y=None,
@@ -293,7 +293,10 @@ class HomeScreen(BaseScreen):
     def connect(self, *_):
         self.action_button.disabled = True
         self.action_button.set_text("CONNEXION...")
-        self.status_card.set_value("Connexion...", "Initialisation ELM327 en cours")
+        self.status_card.set_value(
+            "Connexion...",
+            "Tentative de connexion a l'adaptateur ELM327 en cours",
+        )
         host = self.host_input.text
         port = self.port_input.text
         Thread(target=self._connect_worker, args=(host, port), daemon=True).start()
@@ -337,7 +340,7 @@ class HomeScreen(BaseScreen):
     def _sync_action_button(self):
         service = self.app.obd_service
         if service.is_connected():
-            self.action_button.set_text("DÉCONNECTER")
+            self.action_button.set_text("DECONNECTER")
             self.action_button.button_color = with_alpha(BLUE, 0.18)
             self.action_button.border_color = with_alpha(BLUE, 0.75)
             self.action_button.label.text_color = TEXT

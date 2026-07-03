@@ -169,9 +169,10 @@ class OBDService:
             return True
         except Exception as exc:
             self.disconnect()
-            self.last_error = (
-                f"{exc.__class__.__name__}: {exc} "
-                f"(cible TCP {selected_host}:{port_for_logs})"
+            self.last_error = self._format_connection_error(
+                exc,
+                selected_host,
+                port_for_logs,
             )
             logger.exception(
                 "Echec de connexion OBD2 sur %s:%s",
@@ -935,6 +936,37 @@ class OBDService:
         if isinstance(port, int):
             return port
         return port.strip() or OBD_PORT
+
+    @staticmethod
+    def _format_connection_error(
+        exc: Exception,
+        host: str,
+        port: int | str,
+    ) -> str:
+        target = f"{host}:{port}"
+        if isinstance(exc, ConnectionRefusedError):
+            hint = (
+                "Demarrez l'emulateur avec `elm -s car -n 35000`."
+                if host in {"127.0.0.1", "localhost"} and str(port) == str(OBD_PORT)
+                else "Verifiez qu'un adaptateur ELM327 TCP/IP ecoute bien sur cette adresse."
+            )
+            return (
+                f"Aucun service OBD2 n'ecoute sur {target}.\n"
+                f"{hint}"
+            )
+        if isinstance(exc, TimeoutError):
+            return (
+                f"Le delai de connexion a expire vers {target}.\n"
+                "Verifiez l'adresse IP, le port et la disponibilite de l'adaptateur."
+            )
+        if isinstance(exc, socket.gaierror):
+            return (
+                f"Adresse OBD2 invalide ou introuvable: {host}.\n"
+                "Corrigez l'hote TCP/IP puis relancez la connexion."
+            )
+        if isinstance(exc, ValueError):
+            return str(exc)
+        return f"{exc.__class__.__name__}: {exc} (cible TCP {target})"
 
     @staticmethod
     def _format_response(value: Any) -> tuple[str, str]:

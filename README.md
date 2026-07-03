@@ -65,6 +65,14 @@ Ensuite, lance l'application ou le script `test_obd.py`. Par defaut, ils utilise
 
 Dans l'application, va sur l'ecran Accueil pour verifier ou modifier l'adresse IP et le port TCP.
 
+Pour lancer automatiquement l'emulateur DTC de test puis l'application :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run_app_with_fake_dtc.ps1
+```
+
+Ce lanceur ouvre l'emulateur de faux DTC (`P0301`, `P0420`), attend que le port TCP `35000` soit pret, puis demarre l'application.
+
 Important : dans tous les cas, la simulation est fournie par `ELM327-emulator`, pas par le code de l'application.
 
 ## Donnees exploitees par l'application
