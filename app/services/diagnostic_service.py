@@ -16,6 +16,11 @@ class DiagnosticService:
     NORMAL = "normal"
     WARNING = "warning"
     CRITICAL = "critical"
+    SEVERITY_RANK = {
+        NORMAL: 0,
+        WARNING: 1,
+        CRITICAL: 2,
+    }
 
     def analyze(
         self,
@@ -23,7 +28,7 @@ class DiagnosticService:
         dtc_codes: list[OBDTroubleCode] | list[dict[str, Any]] | None = None,
     ) -> list[DiagnosticResult]:
         data = self._normalize_live_data(live_data)
-        codes = dtc_codes or []
+        codes = self._normalize_dtc_codes(dtc_codes or [])
         results: list[DiagnosticResult] = []
 
         battery_voltage = self._to_float(data.get("battery_voltage"))
@@ -47,11 +52,28 @@ class DiagnosticService:
             )
 
         rpm = self._to_float(data.get("rpm"))
+        speed = self._to_float(data.get("speed"))
+        engine_load = self._to_float(data.get("engine_load"))
         if rpm is not None and rpm > 4000:
             results.append(
                 DiagnosticResult(
                     title="Regime moteur eleve",
                     message=f"Regime moteur mesure a {rpm:.0f} tr/min.",
+                    severity=self.WARNING,
+                )
+            )
+        elif (
+            rpm is not None
+            and speed is not None
+            and engine_load is not None
+            and speed <= 5
+            and rpm >= 1000
+            and engine_load >= 30
+        ):
+            results.append(
+                DiagnosticResult(
+                    title="Ralenti moteur irregulier",
+                    message=f"Ralenti eleve a {rpm:.0f} tr/min avec charge moteur a {engine_load:.0f}%.",
                     severity=self.WARNING,
                 )
             )
@@ -88,24 +110,18 @@ class DiagnosticService:
                 )
 
         if codes:
-            results.append(
-                DiagnosticResult(
-                    title="Anomalie detectee",
-                    message=f"{len(codes)} code(s) defaut OBD2 present(s).",
-                    severity=self.CRITICAL,
-                )
-            )
+            results.append(self._build_dtc_result(codes))
 
         if not results:
-            results.append(
+            return [
                 DiagnosticResult(
                     title="Etat normal",
                     message="Aucune anomalie detectee avec les donnees disponibles.",
                     severity=self.NORMAL,
                 )
-            )
+            ]
 
-        return results
+        return self._sort_results(results)
 
     def overall_severity(self, results: list[DiagnosticResult]) -> str:
         severities = [result.severity for result in results]
@@ -128,6 +144,65 @@ class DiagnosticService:
             if pid and reading.available:
                 normalized[pid.storage_field] = reading.value
         return normalized
+
+    @classmethod
+    def _normalize_dtc_codes(
+        cls,
+        dtc_codes: list[OBDTroubleCode] | list[dict[str, Any]],
+    ) -> list[OBDTroubleCode]:
+        normalized: list[OBDTroubleCode] = []
+        for code in dtc_codes:
+            if isinstance(code, OBDTroubleCode):
+                normalized.append(code)
+                continue
+            normalized.append(
+                OBDTroubleCode(
+                    code=str(code.get("code", "")).strip().upper(),
+                    description=str(code.get("description", "")).strip(),
+                    severity=str(code.get("severity", "")).strip(),
+                )
+            )
+        return normalized
+
+    @classmethod
+    def _build_dtc_result(cls, codes: list[OBDTroubleCode]) -> DiagnosticResult:
+        critical_count = sum(1 for code in codes if cls._normalize_severity(code.severity) == cls.CRITICAL)
+        warning_count = sum(1 for code in codes if cls._normalize_severity(code.severity) == cls.WARNING)
+
+        if critical_count:
+            severity = cls.CRITICAL
+            title = "Code DTC critique actif"
+        elif warning_count:
+            severity = cls.WARNING
+            title = "Code DTC a surveiller"
+        else:
+            severity = cls.NORMAL
+            title = "Code DTC memorise"
+
+        details = [f"{len(codes)} code(s) DTC actif(s)"]
+        if critical_count:
+            details.append(f"{critical_count} critique(s)")
+        if warning_count:
+            details.append(f"{warning_count} a surveiller")
+
+        return DiagnosticResult(
+            title=title,
+            message=", ".join(details) + ".",
+            severity=severity,
+        )
+
+    @classmethod
+    def _sort_results(cls, results: list[DiagnosticResult]) -> list[DiagnosticResult]:
+        return sorted(results, key=lambda item: cls.SEVERITY_RANK.get(item.severity, -1), reverse=True)
+
+    @classmethod
+    def _normalize_severity(cls, severity: str) -> str:
+        normalized = (severity or "").strip().lower()
+        if normalized in {cls.CRITICAL, "critique", "elevee", "haute"}:
+            return cls.CRITICAL
+        if normalized in {cls.WARNING, "alerte", "moyenne"}:
+            return cls.WARNING
+        return cls.NORMAL
 
     @staticmethod
     def _to_float(value: Any) -> float | None:

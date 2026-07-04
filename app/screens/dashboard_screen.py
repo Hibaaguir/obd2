@@ -594,11 +594,19 @@ class DashboardScreen(BaseScreen):
     def _read_worker(self):
         try:
             readings = self.app.obd_service.read_live_data()
-            Clock.schedule_once(lambda *_: self._finish_read(readings, None), 0)
         except Exception as exc:
-            Clock.schedule_once(lambda *_, error=exc: self._finish_read([], error), 0)
+            Clock.schedule_once(lambda *_, error=exc: self._finish_read([], [], error), 0)
+            return
 
-    def _finish_read(self, readings, error):
+        try:
+            codes = self.app.obd_service.read_error_codes()
+        except Exception as exc:
+            Clock.schedule_once(lambda *_, error=exc: self._finish_read(readings, [], error), 0)
+            return
+
+        Clock.schedule_once(lambda *_: self._finish_read(readings, codes, None), 0)
+
+    def _finish_read(self, readings, codes, error):
         self.loading = False
         self.refresh_button.disabled = False
         self.refresh_button.set_button(
@@ -609,13 +617,18 @@ class DashboardScreen(BaseScreen):
             font_size=sp(14),
         )
         self._update_connection_status()
-        if error is not None:
+        if error is not None and not readings:
             self.message.text = "Lecture ECU impossible"
             return
 
         self.app.database.save_measurement(measurement_from_readings(readings))
         available = sum(1 for reading in readings if reading.available)
-        self.message.text = f"{available}/{len(readings)} donnees ECU disponibles"
+        if error is not None:
+            self.message.text = f"{available}/{len(readings)} donnees ECU disponibles • lecture DTC indisponible"
+        elif codes:
+            self.message.text = f"{available}/{len(readings)} donnees ECU disponibles • {len(codes)} DTC actif(s)"
+        else:
+            self.message.text = f"{available}/{len(readings)} donnees ECU disponibles • aucun DTC actif"
 
         for reading in readings:
             card = self.cards.get(reading.key)
@@ -624,17 +637,7 @@ class DashboardScreen(BaseScreen):
             status = self._status_for_reading(reading)
             card.set_data(reading.value, reading.unit, status)
 
-        diagnostics = self.app.diagnostic_service.analyze(readings, [])
-        overall = self.app.diagnostic_service.overall_severity(diagnostics)
-        main_issue = diagnostics[0].title if diagnostics else "Etat normal"
-        summary = diagnostics[0].message if diagnostics else "Aucune anomalie detectee avec les donnees disponibles."
-        self.app.database.save_history_snapshot(
-            measurement_from_readings(readings),
-            diagnostic_status=overall,
-            main_issue=main_issue,
-            diagnostic_summary=summary,
-            dtc_codes=[],
-        )
+        diagnostics = self.app.diagnostic_service.analyze(readings, codes)
         self._render_recommendations(diagnostics)
 
     def _update_connection_status(self):
