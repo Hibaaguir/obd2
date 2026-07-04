@@ -1,3 +1,4 @@
+import re
 from threading import Thread
 
 from kivy.animation import Animation
@@ -15,7 +16,7 @@ from app.core.elm_pid_registry import ELM_EMULATOR_PIDS
 from app.core.measurement_mapper import measurement_from_readings
 from app.core.theme import AMBER, BLUE, GREEN, MUTED, RED, TEXT, status_color, with_alpha
 from app.screens.base_screen import BaseScreen
-from app.widgets.ui_components import GlowCard, MetricCard, SectionLabel
+from app.widgets.ui_components import Badge, GlowCard, MetricCard, SectionLabel
 
 
 PRIMARY_METRIC_KEYS = ("rpm", "speed", "coolant_temp", "hybrid_soc")
@@ -272,18 +273,19 @@ class DashboardSecondaryMetricCard(MDCard):
         self.orientation = "vertical"
         self.size_hint_y = None
         self.height = dp(105)
-        self.padding = (dp(14), dp(12), dp(14), dp(12))
-        self.spacing = dp(6)
+        self.padding = (dp(16), dp(16), dp(16), dp(16))
+        self.spacing = dp(8)
         self.radius = [dp(18)]
         self.elevation = 0
         self.md_bg_color = with_alpha(BLUE, 0.03)
-        self.line_color = with_alpha(accent, 0.18)
+        self.line_color = with_alpha(BLUE, 0)
 
         self.title_label = MDLabel(
             text=title,
             theme_text_color="Custom",
             text_color=with_alpha(TEXT, 0.9),
             font_style="Caption",
+            font_size=sp(11),
             bold=True,
             halign="left",
             valign="middle",
@@ -298,6 +300,7 @@ class DashboardSecondaryMetricCard(MDCard):
             theme_text_color="Custom",
             text_color=TEXT,
             font_style="H5",
+            font_size=sp(22),
             bold=True,
             halign="left",
             valign="middle",
@@ -343,7 +346,7 @@ class DashboardSecondaryMetricCard(MDCard):
         footer.add_widget(self.status_dot)
         footer.add_widget(self.status_label)
 
-        content = MDBoxLayout(orientation="vertical", spacing=dp(6))
+        content = MDBoxLayout(orientation="vertical", spacing=dp(8))
         content.add_widget(self.title_label)
         content.add_widget(value_row)
         content.add_widget(footer)
@@ -351,16 +354,22 @@ class DashboardSecondaryMetricCard(MDCard):
         self.set_data(value, unit, status)
 
     def set_data(self, value: str, unit: str = "", status: str = "En attente", accent=None):
-        self.value_label.text = str(value)
-        self.value_label.font_style = "Subtitle1" if len(str(value)) > 7 else "H5"
+        value_text = str(value)
+        self.value_label.text = value_text
+        self.value_label.font_style = "Subtitle1" if len(value_text) > 7 else "H5"
+        self.value_label.font_size = sp(15) if len(value_text) > 7 else sp(22)
         self.unit_label.text = unit
         self.status_label.text = status
-        self._apply_accent(accent or self.accent)
+        self._apply_accent(accent or self.accent, status)
 
-    def _apply_accent(self, accent):
+    def _apply_accent(self, accent, status=""):
         self.accent = accent
         self.status_dot.text_color = accent
-        self.line_color = with_alpha(accent, 0.18)
+        normalized_status = str(status or "").strip().lower()
+        if normalized_status in {"attention", "critique"}:
+            self.line_color = with_alpha(accent, 0.18)
+        else:
+            self.line_color = with_alpha(BLUE, 0)
 
 
 class DashboardScreen(BaseScreen):
@@ -393,10 +402,10 @@ class DashboardScreen(BaseScreen):
         layout.add_widget(SectionLabel("Assistant entretien"))
         self.recommendations = GlowCard()
         self.recommendations.size_hint_y = None
-        self.recommendations.height = dp(112)
+        self.recommendations.height = dp(156)
         self.recommendations.radius = [dp(18)]
-        self.recommendations.spacing = dp(12)
-        self.recommendations.padding = dp(16)
+        self.recommendations.spacing = dp(10)
+        self.recommendations.padding = dp(20)
         layout.add_widget(self.recommendations)
         self._render_recommendations([])
 
@@ -434,7 +443,7 @@ class DashboardScreen(BaseScreen):
         self.connection_label.bind(size=lambda label, size: setattr(label, "text_size", size))
 
         self.address_label = MDLabel(
-            text="-",
+            text="ELM327 TCP/IP",
             theme_text_color="Custom",
             text_color=with_alpha(TEXT, 0.82),
             font_style="Caption",
@@ -452,9 +461,9 @@ class DashboardScreen(BaseScreen):
             text_color=MUTED,
             font_style="Caption",
             size_hint_y=None,
-            height=dp(18),
+            height=dp(34),
             halign="left",
-            valign="middle",
+            valign="top",
         )
         self.message.bind(size=lambda label, size: setattr(label, "text_size", size))
 
@@ -574,7 +583,7 @@ class DashboardScreen(BaseScreen):
         self._update_connection_status()
         if not service.is_connected():
             self.message.text = "Aucune donnee ECU disponible"
-            self.address_label.text = "-"
+            self.address_label.text = "ELM327 TCP/IP"
             for card in self.cards.values():
                 card.set_data("-", "", "Hors ligne")
             self._render_recommendations([])
@@ -623,12 +632,11 @@ class DashboardScreen(BaseScreen):
 
         self.app.database.save_measurement(measurement_from_readings(readings))
         available = sum(1 for reading in readings if reading.available)
-        if error is not None:
-            self.message.text = f"{available}/{len(readings)} donnees ECU disponibles • lecture DTC indisponible"
-        elif codes:
-            self.message.text = f"{available}/{len(readings)} donnees ECU disponibles • {len(codes)} DTC actif(s)"
-        else:
-            self.message.text = f"{available}/{len(readings)} donnees ECU disponibles • aucun DTC actif"
+        service = self.app.obd_service
+        self.message.text = (
+            f"{service.current_host}:{service.current_port}\n"
+            f"{available}/{len(readings)} donnees ECU disponibles"
+        )
 
         for reading in readings:
             card = self.cards.get(reading.key)
@@ -644,11 +652,11 @@ class DashboardScreen(BaseScreen):
         service = self.app.obd_service
         if service.is_connected():
             self.connection_label.text = "Connecte"
-            self.address_label.text = f"{service.current_host}:{service.current_port}"
+            self.address_label.text = "ELM327 TCP/IP"
             self.connection_label.text_color = TEXT
         else:
             self.connection_label.text = "Hors ligne"
-            self.address_label.text = "-"
+            self.address_label.text = "ELM327 TCP/IP"
             self.connection_label.text_color = TEXT
 
     def _update_status_card_layout(self, card, width):
@@ -663,84 +671,341 @@ class DashboardScreen(BaseScreen):
 
     def _render_recommendations(self, diagnostics):
         self.recommendations.clear_widgets()
-        count = max(1, min(len(diagnostics), 3))
-        self.recommendations.height = dp(58 + count * 58)
+        dtc_result = next((item for item in diagnostics if self._is_dtc_recommendation(item.title)), None)
+        visible_diagnostics = [item for item in diagnostics if not self._is_dtc_recommendation(item.title)]
+        primary_result = visible_diagnostics[0] if visible_diagnostics else None
+
+        if dtc_result is not None and primary_result is not None:
+            self.recommendations.height = dp(238)
+            self.recommendations.add_widget(self._recommendation_compact_card(dtc_result, primary_result))
+            return
+
+        if dtc_result is not None:
+            self.recommendations.height = dp(152)
+            self.recommendations.add_widget(self._recommendation_compact_card(dtc_result, None))
+            return
+
+        if primary_result is not None:
+            self.recommendations.height = dp(160)
+            self.recommendations.add_widget(self._recommendation_compact_card(None, primary_result))
+            return
+
+        self.recommendations.height = dp(160)
         self.recommendations.add_widget(
-            MDLabel(
-                text="RECOMMANDATIONS SYSTEME",
+            self._recommendation_compact_card(
+                None,
+                None,
+                title="Systeme en attente",
+                detail="Lance une lecture pour afficher les recommandations.",
+                severity="warning",
+            )
+        )
+
+    @staticmethod
+    def _is_dtc_recommendation(title):
+        normalized = str(title or "").strip().lower()
+        return normalized.startswith("code dtc")
+
+    def _recommendation_compact_card(self, dtc_result=None, primary_result=None, title="", detail="", severity="warning"):
+        active_severity = (
+            dtc_result.severity if dtc_result is not None else
+            primary_result.severity if primary_result is not None else
+            severity
+        )
+        color = status_color(active_severity)
+        wrapper = MDBoxLayout(
+            orientation="vertical",
+            adaptive_height=True,
+            spacing=dp(16),
+        )
+
+        badge = self._recommendation_status_badge(self._severity_badge_label(active_severity), color)
+        badge_row = MDBoxLayout(size_hint_y=None, height=dp(28))
+        badge_row.add_widget(badge)
+        badge_row.add_widget(MDBoxLayout())
+        wrapper.add_widget(badge_row)
+
+        if dtc_result is not None:
+            dtc_headline_row = MDBoxLayout(size_hint_y=None, height=dp(28), spacing=dp(12))
+            dtc_icon = MDIcon(
+                icon="alert-outline",
                 theme_text_color="Custom",
-                text_color=MUTED,
-                font_style="Caption",
+                text_color=color,
+                font_size=dp(22),
+                size_hint=(None, None),
+                size=(dp(22), dp(22)),
+                halign="center",
+                valign="middle",
+            )
+            dtc_icon.bind(size=lambda widget, size: setattr(widget, "text_size", size))
+            dtc_headline_row.add_widget(dtc_icon)
+
+            dtc_label = MDLabel(
+                text=self._dtc_count_headline(dtc_result.message),
+                theme_text_color="Custom",
+                text_color=TEXT,
+                font_style="Subtitle1",
+                font_size=sp(18),
+                bold=True,
+                halign="left",
+                valign="middle",
+                size_hint_y=None,
+                height=dp(28),
+            )
+            dtc_label.bind(size=lambda label, size: setattr(label, "text_size", size))
+            dtc_headline_row.add_widget(dtc_label)
+            wrapper.add_widget(dtc_headline_row)
+
+            dtc_detail_row = MDBoxLayout(size_hint_y=None, height=dp(16), spacing=dp(8))
+            dtc_detail_row.add_widget(MDBoxLayout(size_hint=(None, 1), width=dp(22)))
+            dtc_detail = MDLabel(
+                text="Consultez l'onglet Diagnostic pour plus de détails.",
+                theme_text_color="Custom",
+                text_color=with_alpha(MUTED, 0.92),
+                font_style="Body2",
+                font_size=sp(13),
+                size_hint_y=None,
+                height=dp(16),
+                halign="left",
+                valign="middle",
+                shorten=True,
+                shorten_from="right",
+            )
+            dtc_detail.bind(size=lambda label, size: setattr(label, "text_size", size))
+            dtc_detail_row.add_widget(dtc_detail)
+            wrapper.add_widget(dtc_detail_row)
+            wrapper.add_widget(self._recommendation_separator())
+
+        if primary_result is not None:
+            recommendation_row = MDBoxLayout(size_hint_y=None, height=dp(24), spacing=dp(10))
+            recommendation_icon = MDIcon(
+                icon="wrench-outline",
+                theme_text_color="Custom",
+                text_color=AMBER,
+                font_size=dp(18),
+                size_hint=(None, None),
+                size=(dp(18), dp(18)),
+                halign="center",
+                valign="middle",
+            )
+            recommendation_icon.bind(size=lambda widget, size: setattr(widget, "text_size", size))
+            recommendation_row.add_widget(recommendation_icon)
+            recommendation_title = MDLabel(
+                text=f"Recommandation : {primary_result.title}",
+                theme_text_color="Custom",
+                text_color=AMBER,
+                font_style="Subtitle2",
+                font_size=sp(16),
                 bold=True,
                 size_hint_y=None,
                 height=dp(24),
+                halign="left",
+                valign="middle",
+                shorten=True,
+                shorten_from="right",
             )
+            recommendation_title.bind(size=lambda label, size: setattr(label, "text_size", size))
+            recommendation_row.add_widget(recommendation_title)
+            wrapper.add_widget(recommendation_row)
+            detail_text = self._recommendation_message(primary_result.title, primary_result.message)
+        else:
+            detail_text = detail
+
+        if detail_text:
+            wrapper.add_widget(self._recommendation_metrics_row(detail_text))
+
+        return wrapper
+
+    @staticmethod
+    def _severity_badge_label(severity):
+        return {"normal": "normal", "warning": "alerte", "critical": "critique"}.get(severity, severity)
+
+    @staticmethod
+    def _dtc_count_headline(message):
+        match = re.search(r"(\d+)", str(message or ""))
+        count = match.group(1) if match else "0"
+        return f"{count} codes DTC actifs"
+
+    @staticmethod
+    def _recommendation_message(title, message):
+        normalized_title = str(title or "").strip().lower()
+        normalized_message = str(message or "").strip()
+        if normalized_title == "ralenti moteur irregulier":
+            rpm_match = re.search(r"(\d+)\s*tr/min", normalized_message)
+            load_match = re.search(r"(\d+)\s*%", normalized_message)
+            rpm_value = rpm_match.group(1) if rpm_match else "-"
+            load_value = load_match.group(1) if load_match else "-"
+            return f"{rpm_value}|{load_value}"
+        return normalized_message
+
+    @staticmethod
+    def _recommendation_badge(text, color):
+        badge = MDCard(
+            orientation="horizontal",
+            size_hint=(None, None),
+            height=dp(28),
+            radius=[dp(14)],
+            elevation=0,
+            md_bg_color=with_alpha(color, 0.12),
+            line_color=with_alpha(color, 0.65),
+            padding=(dp(12), 0, dp(14), 0),
+            spacing=dp(8),
         )
-
-        if not diagnostics:
-            self.recommendations.add_widget(
-                self._recommendation_row(
-                    "Systeme en attente",
-                    "Lance une lecture pour afficher les recommandations.",
-                    "warning",
-                )
-            )
-            return
-
-        for result in diagnostics[:3]:
-            self.recommendations.add_widget(
-                self._recommendation_row(result.title, result.message, result.severity)
-            )
-
-    def _recommendation_row(self, title, message, severity):
-        color = status_color(severity)
-        row = MDBoxLayout(size_hint_y=None, height=dp(56), spacing=dp(12))
-        icon_box = AnchorLayout(
-            anchor_x="center",
-            anchor_y="center",
-            size_hint=(None, 1),
-            width=dp(24),
-        )
-        icon = MDIcon(
-            icon="check-circle-outline" if severity == "normal" else "alert-outline",
+        dot = MDLabel(
+            text="●",
             theme_text_color="Custom",
             text_color=color,
-            font_size=dp(22),
+            font_size=sp(10),
             size_hint=(None, None),
-            size=(dp(22), dp(22)),
+            size=(dp(12), dp(12)),
             halign="center",
             valign="middle",
         )
-        icon.bind(size=lambda widget, size: setattr(widget, "text_size", size))
-        icon_box.add_widget(icon)
-        row.add_widget(icon_box)
-        copy = MDBoxLayout(orientation="vertical", spacing=dp(1))
-        copy.add_widget(
-            MDLabel(
-                text=title,
-                theme_text_color="Custom",
-                text_color=TEXT if severity == "normal" else color,
-                font_style="Subtitle2",
-                bold=True,
-                size_hint_y=None,
-                height=dp(23),
-                shorten=True,
-                shorten_from="right",
-            )
+        dot.bind(size=lambda label, size: setattr(label, "text_size", size))
+        label = MDLabel(
+            text=text.upper(),
+            theme_text_color="Custom",
+            text_color=color,
+            font_style="Caption",
+            bold=True,
+            size_hint=(None, None),
+            halign="left",
+            valign="middle",
         )
-        copy.add_widget(
-            MDLabel(
-                text=message,
-                theme_text_color="Custom",
-                text_color=MUTED,
-                font_style="Caption",
-                size_hint_y=None,
-                height=dp(31),
-                shorten=True,
-                shorten_from="right",
-            )
+        label.bind(texture_size=lambda widget, texture_size: setattr(widget, "size", texture_size))
+        label.bind(texture_size=lambda widget, texture_size: setattr(badge, "width", texture_size[0] + dp(42)))
+        badge.add_widget(dot)
+        badge.add_widget(label)
+        badge.width = dp(112)
+        return badge
+
+    @staticmethod
+    def _recommendation_status_badge(text, color):
+        badge = MDCard(
+            orientation="horizontal",
+            size_hint=(None, None),
+            height=dp(28),
+            radius=[dp(14)],
+            elevation=0,
+            md_bg_color=with_alpha(color, 0.12),
+            line_color=with_alpha(color, 0.65),
+            padding=(dp(14), 0, dp(14), 0),
+            spacing=dp(8),
         )
-        row.add_widget(copy)
+        dot = MDCard(
+            size_hint=(None, None),
+            size=(dp(9), dp(9)),
+            radius=[dp(5)],
+            elevation=0,
+            md_bg_color=color,
+            line_color=with_alpha(color, 0),
+            pos_hint={"center_y": 0.5},
+        )
+        label = MDLabel(
+            text=text.upper(),
+            theme_text_color="Custom",
+            text_color=color,
+            font_style="Caption",
+            font_size=sp(12.5),
+            bold=True,
+            size_hint=(None, None),
+            halign="left",
+            valign="middle",
+            height=dp(28),
+        )
+        label.bind(
+            texture_size=lambda widget, texture_size: setattr(widget, "size", (texture_size[0], dp(28)))
+        )
+        label.bind(size=lambda widget, size: setattr(widget, "text_size", size))
+        label.bind(texture_size=lambda widget, texture_size: setattr(badge, "width", texture_size[0] + dp(52)))
+        badge.add_widget(dot)
+        badge.add_widget(label)
+        badge.width = dp(126)
+        return badge
+
+    @staticmethod
+    def _recommendation_separator():
+        return MDCard(
+            orientation="vertical",
+            size_hint_y=None,
+            height=dp(1),
+            md_bg_color=with_alpha(BLUE, 0.14),
+            line_color=with_alpha(BLUE, 0),
+            elevation=0,
+        )
+
+    def _recommendation_metrics_row(self, detail_text):
+        rpm_value, load_value = (detail_text.split("|", 1) + ["-"])[:2]
+        row = MDBoxLayout(size_hint_y=None, height=dp(32), spacing=dp(12))
+
+        rpm_group = MDBoxLayout(size_hint=(0.5, 1), spacing=dp(8))
+        rpm_icon = MDIcon(
+            icon="flag-checkered",
+            theme_text_color="Custom",
+            text_color=BLUE,
+            font_size=dp(18),
+            size_hint=(None, None),
+            size=(dp(18), dp(18)),
+            halign="center",
+            valign="middle",
+        )
+        rpm_icon.bind(size=lambda widget, size: setattr(widget, "text_size", size))
+        rpm_group.add_widget(rpm_icon)
+        rpm_label = MDLabel(
+            text=f"[color=#7F90B7]Ralenti :[/color] [color=#F4F7FF][b]{rpm_value} tr/min[/b][/color]",
+            markup=True,
+            theme_text_color="Custom",
+            text_color=with_alpha(TEXT, 0.94),
+            font_style="Body2",
+            font_size=sp(13),
+            size_hint=(1, 1),
+            halign="left",
+            valign="middle",
+            max_lines=1,
+        )
+        rpm_label.bind(size=lambda label, size: setattr(label, "text_size", size))
+        rpm_group.add_widget(rpm_label)
+        row.add_widget(rpm_group)
+
+        divider = MDCard(
+            orientation="vertical",
+            size_hint=(None, None),
+            width=dp(1),
+            height=dp(20),
+            md_bg_color=with_alpha(BLUE, 0.22),
+            line_color=with_alpha(BLUE, 0),
+            elevation=0,
+        )
+        row.add_widget(divider)
+
+        load_group = MDBoxLayout(size_hint=(0.5, 1), spacing=dp(8))
+        load_icon = MDIcon(
+            icon="battery-outline",
+            theme_text_color="Custom",
+            text_color=BLUE,
+            font_size=dp(18),
+            size_hint=(None, None),
+            size=(dp(18), dp(18)),
+            halign="center",
+            valign="middle",
+        )
+        load_icon.bind(size=lambda widget, size: setattr(widget, "text_size", size))
+        load_group.add_widget(load_icon)
+        load_label = MDLabel(
+            text=f"[color=#7F90B7]Charge :[/color] [color=#F4F7FF][b]{load_value} %[/b][/color]",
+            markup=True,
+            theme_text_color="Custom",
+            text_color=with_alpha(TEXT, 0.94),
+            font_style="Body2",
+            font_size=sp(13),
+            size_hint=(1, 1),
+            halign="left",
+            valign="middle",
+            max_lines=1,
+        )
+        load_label.bind(size=lambda label, size: setattr(label, "text_size", size))
+        load_group.add_widget(load_label)
+        row.add_widget(load_group)
         return row
 
     def _status_for_reading(self, reading):

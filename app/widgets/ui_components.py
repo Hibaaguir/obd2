@@ -258,11 +258,11 @@ class MetricCard(MDCard):
         self.size_hint_y = None
         self.height = dp(146)
         self.padding = (dp(16), dp(16), dp(16), dp(16))
-        self.spacing = dp(10)
+        self.spacing = dp(12)
         self.radius = [dp(18)]
         self.elevation = 0
         self.md_bg_color = PANEL_BG
-        self.line_color = with_alpha(accent, 0.22)
+        self.line_color = with_alpha(BLUE, 0)
 
         header = MDBoxLayout(size_hint_y=None, height=dp(26), spacing=dp(8))
         self.icon_label = MDIcon(
@@ -281,7 +281,7 @@ class MetricCard(MDCard):
             theme_text_color="Custom",
             text_color=with_alpha(TEXT, 0.9),
             font_style="Subtitle2",
-            font_size=sp(15),
+            font_size=sp(14),
             bold=True,
             halign="left",
             valign="middle",
@@ -290,20 +290,18 @@ class MetricCard(MDCard):
         header.add_widget(self.icon_label)
         header.add_widget(self.title_label)
 
-        value_block = MDBoxLayout(orientation="vertical", size_hint_y=None, height=dp(50), spacing=dp(3))
+        value_block = MDBoxLayout(size_hint_y=None, height=dp(34), spacing=dp(6))
         self.value_label = MDLabel(
             text=value,
             theme_text_color="Custom",
             text_color=TEXT,
             font_style="H4",
-            font_size=sp(30),
+            font_size=sp(27),
             bold=True,
             halign="left",
             valign="middle",
-            size_hint_y=None,
-            height=dp(31),
         )
-        self.value_label.bind(width=self._sync_wrapped_text)
+        self.value_label.bind(size=lambda label, size: setattr(label, "text_size", size))
         self.unit_label = MDLabel(
             text=unit,
             theme_text_color="Custom",
@@ -313,10 +311,10 @@ class MetricCard(MDCard):
             bold=True,
             halign="left",
             valign="middle",
-            size_hint_y=None,
-            height=dp(16),
+            size_hint_x=None,
+            width=dp(52),
         )
-        self.unit_label.bind(width=self._sync_wrapped_text)
+        self.unit_label.bind(size=lambda label, size: setattr(label, "text_size", size))
         value_block.add_widget(self.value_label)
         value_block.add_widget(self.unit_label)
 
@@ -355,15 +353,20 @@ class MetricCard(MDCard):
         value_text = str(value)
         self.value_label.text = value_text
         self.value_label.font_style = "H5" if len(value_text) > 7 else "H4"
+        self.value_label.font_size = sp(24) if len(value_text) > 7 else sp(27)
         self.unit_label.text = unit
         self.status_label.text = status
-        self._apply_accent(accent or self.accent)
+        self._apply_accent(accent or self.accent, status)
 
-    def _apply_accent(self, accent):
+    def _apply_accent(self, accent, status=""):
         self.accent = accent
         self.icon_label.text_color = accent
         self.status_dot.text_color = accent
-        self.line_color = with_alpha(accent, 0.22)
+        normalized_status = str(status or "").strip().lower()
+        if normalized_status in {"attention", "critique"}:
+            self.line_color = with_alpha(accent, 0.22)
+        else:
+            self.line_color = with_alpha(BLUE, 0)
 
     @staticmethod
     def _sync_wrapped_text(label, width):

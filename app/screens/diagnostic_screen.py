@@ -212,16 +212,22 @@ class DiagnosticScreen(BaseScreen):
         normal_count = sum(1 for item in diagnostics if item.severity == "normal")
         warning_count = sum(1 for item in diagnostics if item.severity == "warning")
         critical_count = sum(1 for item in diagnostics if item.severity == "critical")
+        has_active_dtc = bool(codes)
         title = {
             "normal": "Systeme normal",
             "warning": "Attention requise",
             "critical": "Anomalie critique",
         }.get(overall, "Diagnostic termine")
-        message = {
-            "normal": "Aucune anomalie detectee avec les donnees disponibles.",
-            "warning": "Points a surveiller detectes. Controle recommande.",
-            "critical": "Anomalie critique detectee. Verification immediate recommandee.",
-        }.get(overall, "Analyse terminee.")
+        if overall == "critical":
+            message = (
+                "Code DTC critique actif. Verification immediate recommandee."
+                if has_active_dtc
+                else "Mesure critique detectee. Verification immediate recommandee."
+            )
+        elif overall == "warning":
+            message = "Points a surveiller detectes. Controle recommande."
+        else:
+            message = "Aucune anomalie detectee avec les donnees disponibles."
         self._render_summary(title, message, overall, normal_count, warning_count, critical_count, len(codes))
         self._render_results(diagnostics)
         self._render_codes(codes)
@@ -612,64 +618,79 @@ class DiagnosticScreen(BaseScreen):
         color = status_color(severity)
         card = GlowCard(accent=color)
         card.size_hint_y = None
-        card.height = dp(128)
+        card.height = dp(122)
         card.radius = [dp(18)]
         card.padding = (dp(16), dp(14), dp(16), dp(14))
-        card.spacing = dp(6)
-        card.line_color = with_alpha(color, 0.75)
+        card.spacing = dp(4)
+        card.line_color = with_alpha(color, 0.75) if severity != "normal" else with_alpha(BLUE, 0)
 
-        header = MDBoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
+        header = MDBoxLayout(size_hint_y=None, height=dp(42), spacing=dp(8))
         identity = MDBoxLayout(orientation="vertical", spacing=dp(2))
         code_label = MDLabel(
             text=code.code,
             theme_text_color="Custom",
             text_color=color,
-            font_style="H6",
-            font_size=sp(22),
+            font_style="H5",
+            font_size=sp(26),
             bold=True,
             size_hint_y=None,
-            height=dp(24),
+            height=dp(28),
             halign="left",
             valign="middle",
+            shorten=True,
+            shorten_from="right",
         )
         code_label.bind(size=lambda label, size: setattr(label, "text_size", size))
         identity.add_widget(code_label)
-        identity.add_widget(
-            MDLabel(
-                text=self._dtc_family_label(code.code),
-                theme_text_color="Custom",
-                text_color=with_alpha(MUTED, 0.88),
-                font_style="Caption",
-                size_hint_y=None,
-                height=dp(16),
-                halign="left",
-                valign="middle",
-            )
+        category_label = MDLabel(
+            text=self._dtc_family_label(code.code),
+            theme_text_color="Custom",
+            text_color=with_alpha(MUTED, 0.88),
+            font_style="Caption",
+            size_hint_y=None,
+            height=dp(14),
+            halign="left",
+            valign="middle",
+            shorten=True,
+            shorten_from="right",
         )
+        category_label.bind(size=lambda label, size: setattr(label, "text_size", size))
+        identity.add_widget(category_label)
         header.add_widget(identity)
         header.add_widget(MDBoxLayout())
         header.add_widget(self._dtc_severity_badge(self._severity_label(severity), color))
         card.add_widget(header)
 
-        card.add_widget(
-            MDLabel(
-                text=self._dtc_title(code),
-                theme_text_color="Custom",
-                text_color=TEXT,
-                font_style="Subtitle2",
-                adaptive_height=True,
-                bold=True,
-            )
+        title_label = MDLabel(
+            text=self._dtc_title(code),
+            theme_text_color="Custom",
+            text_color=TEXT,
+            font_style="Subtitle2",
+            bold=True,
+            size_hint_y=None,
+            height=dp(22),
+            halign="left",
+            valign="middle",
+            shorten=True,
+            shorten_from="right",
         )
-        card.add_widget(
-            MDLabel(
-                text=self._dtc_summary(code.code, severity),
-                theme_text_color="Custom",
-                text_color=MUTED,
-                font_style="Caption",
-                adaptive_height=True,
-            )
+        title_label.bind(size=lambda label, size: setattr(label, "text_size", size))
+        card.add_widget(title_label)
+
+        summary_label = MDLabel(
+            text=self._dtc_summary(code.code, severity),
+            theme_text_color="Custom",
+            text_color=MUTED,
+            font_style="Caption",
+            size_hint_y=None,
+            height=dp(18),
+            halign="left",
+            valign="middle",
+            shorten=True,
+            shorten_from="right",
         )
+        summary_label.bind(size=lambda label, size: setattr(label, "text_size", size))
+        card.add_widget(summary_label)
         return card
 
     @staticmethod
@@ -710,33 +731,7 @@ class DiagnosticScreen(BaseScreen):
 
     @staticmethod
     def _dtc_severity_badge(text, color):
-        badge = MDCard(
-            orientation="vertical",
-            size_hint=(None, None),
-            height=dp(28),
-            radius=[dp(14)],
-            elevation=0,
-            md_bg_color=with_alpha(color, 0.16),
-            line_color=with_alpha(color, 0.55),
-            padding=(dp(14), 0, dp(14), 0),
-        )
-        anchor = AnchorLayout(anchor_x="center", anchor_y="center")
-        label = MDLabel(
-            text=text.upper(),
-            theme_text_color="Custom",
-            text_color=color,
-            font_style="Caption",
-            bold=True,
-            halign="center",
-            valign="middle",
-            size_hint=(None, None),
-        )
-        label.bind(texture_size=lambda widget, texture_size: setattr(badge, "width", texture_size[0] + dp(28)))
-        label.bind(texture_size=lambda widget, texture_size: setattr(widget, "size", texture_size))
-        anchor.add_widget(label)
-        badge.add_widget(anchor)
-        badge.width = dp(110)
-        return badge
+        return Badge(text, color)
 
     def _build_header(self):
         header = MDBoxLayout(
