@@ -20,6 +20,7 @@ from app.screens.history_screen import HistoryScreen
 from app.screens.home_screen import HomeScreen
 from app.services.diagnostic_service import DiagnosticService
 from app.services.obd_service import OBDService
+from app.services.vehicle_state_service import VehicleStateService
 from app.widgets.ui_components import NavItem
 
 
@@ -35,6 +36,11 @@ class OBD2App(MDApp):
         self.obd_service = OBDService()
         self.diagnostic_service = DiagnosticService()
         self.database = Database()
+        self.vehicle_state_service = VehicleStateService(
+            self.obd_service,
+            self.diagnostic_service,
+            self.database,
+        )
         self.screen_manager = ScreenManager()
         self.nav_items = {}
 

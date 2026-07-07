@@ -13,7 +13,6 @@ from kivymd.uix.label import MDIcon, MDLabel
 from kivymd.uix.spinner import MDSpinner
 
 from app.core.elm_pid_registry import ELM_EMULATOR_PIDS
-from app.core.measurement_mapper import measurement_from_readings
 from app.core.theme import AMBER, BLUE, GREEN, MUTED, RED, TEXT, status_color, with_alpha
 from app.screens.base_screen import BaseScreen
 from app.widgets.ui_components import Badge, GlowCard, MetricCard, SectionLabel
@@ -25,7 +24,7 @@ COMPACT_SECTIONS = (
     ("MOTEUR", ("engine_load", "intake_pressure", "intake_temp", "maf", "throttle_pos", "module_voltage")),
     ("HYBRIDE", ("hybrid_current", "mg1_temp", "mg2_temp", "mg1_torque", "mg2_torque")),
     ("VEHICULE", ("odometer", "fuel_level", "vin")),
-    ("CONFORT / ENVIRONNEMENT", ("ambient_temp",)),
+    ("ENVIRONNEMENT", ("ambient_temp",)),
 )
 
 
@@ -379,6 +378,7 @@ class DashboardScreen(BaseScreen):
         self.cards = {}
         self.secondary_sections = []
         self._scroll_preserve_event = None
+        self._recommendation_height_event = None
 
         layout = self.build_page()
         self.page_layout = layout
@@ -399,15 +399,15 @@ class DashboardScreen(BaseScreen):
             primary_grid.add_widget(card)
         layout.add_widget(primary_grid)
 
-        layout.add_widget(SectionLabel("Assistant entretien"))
+        layout.add_widget(SectionLabel("Synthese prioritaire"))
         self.recommendations = GlowCard()
         self.recommendations.size_hint_y = None
-        self.recommendations.height = dp(156)
+        self.recommendations.height = dp(172)
         self.recommendations.radius = [dp(18)]
         self.recommendations.spacing = dp(10)
         self.recommendations.padding = dp(20)
         layout.add_widget(self.recommendations)
-        self._render_recommendations([])
+        self._render_recommendations(None)
 
         for title, keys in COMPACT_SECTIONS:
             layout.add_widget(self._build_secondary_section(title, keys))
@@ -424,10 +424,10 @@ class DashboardScreen(BaseScreen):
     def _build_status_card(self):
         card = GlowCard(accent=BLUE)
         card.size_hint_y = None
-        card.height = dp(108)
+        card.height = dp(132)
         card.radius = [dp(18)]
         card.padding = (dp(16), dp(12), dp(16), dp(12))
-        card.spacing = dp(12)
+        card.spacing = dp(10)
 
         self.connection_label = MDLabel(
             text="Hors ligne",
@@ -586,13 +586,13 @@ class DashboardScreen(BaseScreen):
             self.address_label.text = "ELM327 TCP/IP"
             for card in self.cards.values():
                 card.set_data("-", "", "Hors ligne")
-            self._render_recommendations([])
+            self._render_recommendations(None)
             return
 
         self.loading = True
         self.refresh_button.disabled = True
         self.refresh_button.set_loading(
-            text="Actualisation...",
+            text="Lecture...",
             fill_color=(0.247, 0.494, 0.91, 1),
             line_color=with_alpha(BLUE, 0),
             font_size=sp(13),
@@ -602,20 +602,14 @@ class DashboardScreen(BaseScreen):
 
     def _read_worker(self):
         try:
-            readings = self.app.obd_service.read_live_data()
+            snapshot = self.app.vehicle_state_service.refresh_snapshot()
         except Exception as exc:
-            Clock.schedule_once(lambda *_, error=exc: self._finish_read([], [], error), 0)
+            Clock.schedule_once(lambda *_, error=exc: self._finish_read(None, error), 0)
             return
 
-        try:
-            codes = self.app.obd_service.read_error_codes()
-        except Exception as exc:
-            Clock.schedule_once(lambda *_, error=exc: self._finish_read(readings, [], error), 0)
-            return
+        Clock.schedule_once(lambda *_: self._finish_read(snapshot, None), 0)
 
-        Clock.schedule_once(lambda *_: self._finish_read(readings, codes, None), 0)
-
-    def _finish_read(self, readings, codes, error):
+    def _finish_read(self, snapshot, error):
         self.loading = False
         self.refresh_button.disabled = False
         self.refresh_button.set_button(
@@ -626,27 +620,24 @@ class DashboardScreen(BaseScreen):
             font_size=sp(14),
         )
         self._update_connection_status()
-        if error is not None and not readings:
+        if error is not None or snapshot is None:
             self.message.text = "Lecture ECU impossible"
             return
 
-        self.app.database.save_measurement(measurement_from_readings(readings))
-        available = sum(1 for reading in readings if reading.available)
         service = self.app.obd_service
         self.message.text = (
             f"{service.current_host}:{service.current_port}\n"
-            f"{available}/{len(readings)} donnees ECU disponibles"
+            f"{snapshot.available_readings}/{snapshot.total_readings} donnees ECU disponibles"
         )
 
-        for reading in readings:
+        for reading in snapshot.readings:
             card = self.cards.get(reading.key)
             if not card:
                 continue
-            status = self._status_for_reading(reading)
-            card.set_data(reading.value, reading.unit, status)
+            metric_status = snapshot.metric_statuses.get(reading.key)
+            card.set_data(reading.value, reading.unit, metric_status.label if metric_status else "Disponible")
 
-        diagnostics = self.app.diagnostic_service.analyze(readings, codes)
-        self._render_recommendations(diagnostics)
+        self._render_recommendations(snapshot)
 
     def _update_connection_status(self):
         service = self.app.obd_service
@@ -667,30 +658,64 @@ class DashboardScreen(BaseScreen):
         self.status_actions.width = 0 if compact else dp(160)
         self.refresh_button.size_hint_x = 1 if compact else None
         self.refresh_button.width = 0 if compact else dp(160)
-        card.height = dp(136) if compact else dp(108)
+        card.height = dp(160) if compact else dp(132)
 
-    def _render_recommendations(self, diagnostics):
+    def _render_recommendations(self, snapshot):
         self.recommendations.clear_widgets()
+        diagnostics = snapshot.diagnostics if snapshot is not None else []
         dtc_result = next((item for item in diagnostics if self._is_dtc_recommendation(item.title)), None)
         visible_diagnostics = [item for item in diagnostics if not self._is_dtc_recommendation(item.title)]
         primary_result = visible_diagnostics[0] if visible_diagnostics else None
+        active_alert_count = sum(1 for item in visible_diagnostics if item.severity != "normal")
+
+        if (
+            snapshot is not None
+            and dtc_result is None
+            and primary_result is not None
+            and primary_result.severity == "normal"
+        ):
+            self.recommendations.add_widget(
+                self._recommendation_compact_card(
+                    None,
+                    None,
+                    title="Systeme stable",
+                    detail=(
+                        f"{snapshot.available_readings}/{snapshot.total_readings} mesures live sont coherentes. "
+                        "Aucune alerte immediate n'a ete detectee."
+                    ),
+                    severity="normal",
+                )
+            )
+            self._schedule_recommendations_height_update()
+            return
 
         if dtc_result is not None and primary_result is not None:
-            self.recommendations.height = dp(238)
-            self.recommendations.add_widget(self._recommendation_compact_card(dtc_result, primary_result))
+            self.recommendations.add_widget(
+                self._recommendation_compact_card(
+                    dtc_result,
+                    primary_result,
+                    alert_count=active_alert_count,
+                )
+            )
+            self._schedule_recommendations_height_update()
             return
 
         if dtc_result is not None:
-            self.recommendations.height = dp(152)
             self.recommendations.add_widget(self._recommendation_compact_card(dtc_result, None))
+            self._schedule_recommendations_height_update()
             return
 
         if primary_result is not None:
-            self.recommendations.height = dp(160)
-            self.recommendations.add_widget(self._recommendation_compact_card(None, primary_result))
+            self.recommendations.add_widget(
+                self._recommendation_compact_card(
+                    None,
+                    primary_result,
+                    alert_count=active_alert_count,
+                )
+            )
+            self._schedule_recommendations_height_update()
             return
 
-        self.recommendations.height = dp(160)
         self.recommendations.add_widget(
             self._recommendation_compact_card(
                 None,
@@ -700,17 +725,60 @@ class DashboardScreen(BaseScreen):
                 severity="warning",
             )
         )
+        self._schedule_recommendations_height_update()
+
+    def _schedule_recommendations_height_update(self):
+        if self._recommendation_height_event is not None:
+            self._recommendation_height_event.cancel()
+        self._recommendation_height_event = Clock.schedule_once(self._apply_recommendations_height, 0)
+
+    def _apply_recommendations_height(self, *_):
+        self._recommendation_height_event = None
+        if not self.recommendations.children:
+            self.recommendations.height = dp(166)
+            return
+
+        content = self.recommendations.children[0]
+        content_height = max(getattr(content, "minimum_height", 0), getattr(content, "height", 0))
+
+        padding = self.recommendations.padding
+        if isinstance(padding, (list, tuple)):
+            if len(padding) >= 4:
+                vertical_padding = padding[1] + padding[3]
+            elif len(padding) == 2:
+                vertical_padding = padding[1] * 2
+            elif len(padding) == 1:
+                vertical_padding = padding[0] * 2
+            else:
+                vertical_padding = dp(40)
+        else:
+            vertical_padding = padding * 2
+
+        self.recommendations.height = max(dp(166), content_height + vertical_padding)
 
     @staticmethod
     def _is_dtc_recommendation(title):
         normalized = str(title or "").strip().lower()
         return normalized.startswith("code dtc")
 
-    def _recommendation_compact_card(self, dtc_result=None, primary_result=None, title="", detail="", severity="warning"):
+    def _recommendation_compact_card(
+        self,
+        dtc_result=None,
+        primary_result=None,
+        title="",
+        detail="",
+        severity="warning",
+        alert_count=0,
+    ):
         active_severity = (
             dtc_result.severity if dtc_result is not None else
             primary_result.severity if primary_result is not None else
             severity
+        )
+        info_text = (
+            f"{alert_count} alertes detectees, affichage de la priorite principale."
+            if alert_count > 1 else
+            ""
         )
         color = status_color(active_severity)
         wrapper = MDBoxLayout(
@@ -813,6 +881,8 @@ class DashboardScreen(BaseScreen):
 
         if detail_text:
             wrapper.add_widget(self._recommendation_metrics_row(detail_text))
+        if info_text:
+            wrapper.add_widget(self._recommendation_info_line(info_text))
 
         return wrapper
 
@@ -889,7 +959,7 @@ class DashboardScreen(BaseScreen):
             elevation=0,
             md_bg_color=with_alpha(color, 0.12),
             line_color=with_alpha(color, 0.65),
-            padding=(dp(14), 0, dp(14), 0),
+            padding=(dp(16), 0, dp(16), 0),
             spacing=dp(8),
         )
         dot = MDCard(
@@ -917,10 +987,10 @@ class DashboardScreen(BaseScreen):
             texture_size=lambda widget, texture_size: setattr(widget, "size", (texture_size[0], dp(28)))
         )
         label.bind(size=lambda widget, size: setattr(widget, "text_size", size))
-        label.bind(texture_size=lambda widget, texture_size: setattr(badge, "width", texture_size[0] + dp(52)))
+        label.bind(texture_size=lambda widget, texture_size: setattr(badge, "width", texture_size[0] + dp(58)))
         badge.add_widget(dot)
         badge.add_widget(label)
-        badge.width = dp(126)
+        badge.width = dp(138)
         return badge
 
     @staticmethod
@@ -933,6 +1003,21 @@ class DashboardScreen(BaseScreen):
             line_color=with_alpha(BLUE, 0),
             elevation=0,
         )
+
+    @staticmethod
+    def _recommendation_info_line(text):
+        label = MDLabel(
+            text=text,
+            theme_text_color="Custom",
+            text_color=with_alpha(MUTED, 0.9),
+            font_style="Caption",
+            font_size=sp(12.5),
+            adaptive_height=True,
+            halign="left",
+            valign="middle",
+        )
+        label.bind(size=lambda widget, size: setattr(widget, "text_size", size))
+        return label
 
     def _recommendation_metrics_row(self, detail_text):
         rpm_value, load_value = (detail_text.split("|", 1) + ["-"])[:2]
@@ -1007,73 +1092,6 @@ class DashboardScreen(BaseScreen):
         load_group.add_widget(load_label)
         row.add_widget(load_group)
         return row
-
-    def _status_for_reading(self, reading):
-        if not reading.available:
-            return "Non supporte"
-
-        if reading.key == "speed":
-            return self._speed_status(reading.value)
-        if reading.key == "rpm":
-            return self._rpm_status(reading.value)
-        if reading.key == "coolant_temp":
-            return self._coolant_status(reading.value)
-        if reading.key == "hybrid_soc":
-            return self._soc_status(reading.value)
-        return "Disponible"
-
-    @staticmethod
-    def _to_float(value):
-        try:
-            return float(str(value).replace(",", "."))
-        except (TypeError, ValueError):
-            return None
-
-    def _speed_status(self, value):
-        numeric = self._to_float(value)
-        if numeric is None:
-            return "En attente"
-        if numeric <= 5:
-            return "Stable"
-        if numeric < 110:
-            return "Normal"
-        return "Attention"
-
-    def _rpm_status(self, value):
-        numeric = self._to_float(value)
-        if numeric is None:
-            return "En attente"
-        if numeric < 900:
-            return "Stable"
-        if numeric < 3000:
-            return "Optimal"
-        if numeric < 5000:
-            return "Normal"
-        return "Attention"
-
-    def _coolant_status(self, value):
-        numeric = self._to_float(value)
-        if numeric is None:
-            return "En attente"
-        if numeric < 70:
-            return "Stable"
-        if numeric <= 98:
-            return "Optimal"
-        if numeric <= 108:
-            return "Attention"
-        return "Critique"
-
-    def _soc_status(self, value):
-        numeric = self._to_float(value)
-        if numeric is None:
-            return "En attente"
-        if numeric < 30:
-            return "Attention"
-        if numeric < 55:
-            return "Stable"
-        if numeric <= 80:
-            return "Optimal"
-        return "Normal"
 
     def _build_metric_card(self, pid):
         return MetricCard(
@@ -1178,7 +1196,7 @@ class DashboardScreen(BaseScreen):
             "MOTEUR": "Moteur",
             "HYBRIDE": "Hybride",
             "VEHICULE": "V\u00e9hicule",
-            "CONFORT / ENVIRONNEMENT": "Confort / Environnement",
+            "ENVIRONNEMENT": "Environnement",
         }
         return replacements.get(title, title.title())
 

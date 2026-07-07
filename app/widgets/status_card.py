@@ -77,13 +77,13 @@ class StatusCard(GlowCard):
         )
         badge_box.add_widget(MDBoxLayout())
         self.live_dot = MDLabel(
-            text="*",
+            text="•",
             theme_text_color="Custom",
             text_color=GREEN,
             font_style="H6",
             bold=True,
             size_hint=(None, None),
-            size=(dp(14), dp(20)),
+            size=(dp(12), dp(20)),
             opacity=0,
         )
         badge_box.add_widget(self.live_dot)

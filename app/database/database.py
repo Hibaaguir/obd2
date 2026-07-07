@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from threading import RLock
 from contextlib import closing
 from datetime import datetime, timedelta
 from typing import Any
@@ -12,108 +13,113 @@ class Database:
     def __init__(self, database_path=DATABASE_PATH):
         self.database_path = database_path
         self._connection: sqlite3.Connection | None = None
+        self._lock = RLock()
 
     def initialize(self):
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        self._connection = sqlite3.connect(self.database_path)
-        self._connection.row_factory = sqlite3.Row
-        with closing(self._connection.cursor()) as cursor:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS measurements (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    rpm REAL,
-                    speed REAL,
-                    coolant_temp REAL,
-                    battery_voltage REAL,
-                    engine_load REAL,
-                    intake_pressure REAL,
-                    intake_temp REAL,
-                    maf REAL,
-                    throttle_pos REAL,
-                    ambient_temp REAL,
-                    hybrid_soc REAL,
-                    hybrid_battery_current REAL,
-                    mg1_temp REAL,
-                    mg2_temp REAL,
-                    mg1_torque REAL,
-                    mg2_torque REAL,
-                    odometer REAL,
-                    fuel_level REAL,
-                    vin TEXT,
-                    raw_data TEXT
+        with self._lock:
+            if self._connection is not None:
+                return
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            self._connection = sqlite3.connect(self.database_path, check_same_thread=False)
+            self._connection.row_factory = sqlite3.Row
+            with closing(self._connection.cursor()) as cursor:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS measurements (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        rpm REAL,
+                        speed REAL,
+                        coolant_temp REAL,
+                        battery_voltage REAL,
+                        engine_load REAL,
+                        intake_pressure REAL,
+                        intake_temp REAL,
+                        maf REAL,
+                        throttle_pos REAL,
+                        ambient_temp REAL,
+                        hybrid_soc REAL,
+                        hybrid_battery_current REAL,
+                        mg1_temp REAL,
+                        mg2_temp REAL,
+                        mg1_torque REAL,
+                        mg2_torque REAL,
+                        odometer REAL,
+                        fuel_level REAL,
+                        vin TEXT,
+                        raw_data TEXT
+                    )
+                    """
                 )
-                """
-            )
-            self._ensure_measurement_columns(cursor)
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS dtc_codes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    code TEXT NOT NULL,
-                    description TEXT,
-                    severity TEXT
+                self._ensure_measurement_columns(cursor)
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS dtc_codes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        code TEXT NOT NULL,
+                        description TEXT,
+                        severity TEXT
+                    )
+                    """
                 )
-                """
-            )
-        self.connection.commit()
+            self._connection.commit()
 
     def save_measurement(self, data: dict[str, Any]):
         timestamp = data.get("timestamp") or datetime.now().isoformat(timespec="seconds")
-        self.connection.execute(
-            """
-            INSERT INTO measurements(
-                timestamp,
-                rpm,
-                speed,
-                coolant_temp,
-                battery_voltage,
-                engine_load,
-                intake_pressure,
-                intake_temp,
-                maf,
-                throttle_pos,
-                ambient_temp,
-                hybrid_soc,
-                hybrid_battery_current,
-                mg1_temp,
-                mg2_temp,
-                mg1_torque,
-                mg2_torque,
-                odometer,
-                fuel_level,
-                vin,
-                raw_data
+        with self._lock:
+            self.connection.execute(
+                """
+                INSERT INTO measurements(
+                    timestamp,
+                    rpm,
+                    speed,
+                    coolant_temp,
+                    battery_voltage,
+                    engine_load,
+                    intake_pressure,
+                    intake_temp,
+                    maf,
+                    throttle_pos,
+                    ambient_temp,
+                    hybrid_soc,
+                    hybrid_battery_current,
+                    mg1_temp,
+                    mg2_temp,
+                    mg1_torque,
+                    mg2_torque,
+                    odometer,
+                    fuel_level,
+                    vin,
+                    raw_data
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    timestamp,
+                    self._to_number(data.get("rpm")),
+                    self._to_number(data.get("speed")),
+                    self._to_number(data.get("coolant_temp")),
+                    self._to_number(data.get("battery_voltage")),
+                    self._to_number(data.get("engine_load")),
+                    self._to_number(data.get("intake_pressure")),
+                    self._to_number(data.get("intake_temp")),
+                    self._to_number(data.get("maf")),
+                    self._to_number(data.get("throttle_pos")),
+                    self._to_number(data.get("ambient_temp")),
+                    self._to_number(data.get("hybrid_soc")),
+                    self._to_number(data.get("hybrid_battery_current")),
+                    self._to_number(data.get("mg1_temp")),
+                    self._to_number(data.get("mg2_temp")),
+                    self._to_number(data.get("mg1_torque")),
+                    self._to_number(data.get("mg2_torque")),
+                    self._to_number(data.get("odometer")),
+                    self._to_number(data.get("fuel_level")),
+                    data.get("vin"),
+                    json.dumps(data.get("raw_data") or {}, ensure_ascii=True),
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                timestamp,
-                self._to_number(data.get("rpm")),
-                self._to_number(data.get("speed")),
-                self._to_number(data.get("coolant_temp")),
-                self._to_number(data.get("battery_voltage")),
-                self._to_number(data.get("engine_load")),
-                self._to_number(data.get("intake_pressure")),
-                self._to_number(data.get("intake_temp")),
-                self._to_number(data.get("maf")),
-                self._to_number(data.get("throttle_pos")),
-                self._to_number(data.get("ambient_temp")),
-                self._to_number(data.get("hybrid_soc")),
-                self._to_number(data.get("hybrid_battery_current")),
-                self._to_number(data.get("mg1_temp")),
-                self._to_number(data.get("mg2_temp")),
-                self._to_number(data.get("mg1_torque")),
-                self._to_number(data.get("mg2_torque")),
-                self._to_number(data.get("odometer")),
-                self._to_number(data.get("fuel_level")),
-                data.get("vin"),
-                json.dumps(data.get("raw_data") or {}, ensure_ascii=True),
-            ),
-        )
-        self.connection.commit()
+            self.connection.commit()
 
     def save_history_snapshot(
         self,
@@ -129,25 +135,26 @@ class Database:
         dtc_count = len([item for item in dtc_signature.split("|") if item]) if dtc_signature else 0
         dtc_codes_text = self._dtc_codes_text(dtc_codes)
 
-        if not self._should_save_history(timestamp, diagnostic_status, main_issue, dtc_signature):
-            return False
+        with self._lock:
+            if not self._should_save_history(timestamp, diagnostic_status, main_issue, dtc_signature):
+                return False
 
-        payload = dict(data)
-        payload["timestamp"] = timestamp
-        payload["diagnostic_status"] = diagnostic_status
-        payload["main_issue"] = main_issue
-        payload["diagnostic_summary"] = main_issue
-        payload["history_summary"] = diagnostic_summary
-        payload["dtc_count"] = dtc_count
-        payload["dtc_codes"] = dtc_codes_text
-        payload["dtc_signature"] = dtc_signature
-        self._insert_measurement(payload)
+            payload = dict(data)
+            payload["timestamp"] = timestamp
+            payload["diagnostic_status"] = diagnostic_status
+            payload["main_issue"] = main_issue
+            payload["diagnostic_summary"] = main_issue
+            payload["history_summary"] = diagnostic_summary
+            payload["dtc_count"] = dtc_count
+            payload["dtc_codes"] = dtc_codes_text
+            payload["dtc_signature"] = dtc_signature
+            self._insert_measurement(payload)
 
-        if dtc_codes:
-            self._insert_dtc_codes(dtc_codes, timestamp)
+            if dtc_codes:
+                self._insert_dtc_codes(dtc_codes, timestamp)
 
-        self.connection.commit()
-        return True
+            self.connection.commit()
+            return True
 
     def save_dtc_codes(self, codes: list[OBDTroubleCode] | list[dict[str, Any]]):
         if not codes:
@@ -166,57 +173,60 @@ class Database:
                         code.get("severity", ""),
                     )
                 )
-        self.connection.executemany(
-            """
-            INSERT INTO dtc_codes(timestamp, code, description, severity)
-            VALUES (?, ?, ?, ?)
-            """,
-            rows,
-        )
-        self.connection.commit()
+        with self._lock:
+            self.connection.executemany(
+                """
+                INSERT INTO dtc_codes(timestamp, code, description, severity)
+                VALUES (?, ?, ?, ?)
+                """,
+                rows,
+            )
+            self.connection.commit()
 
     def get_measurements(self) -> list[sqlite3.Row]:
-        cursor = self.connection.execute(
-            """
-            SELECT
-                id,
-                timestamp,
-                diagnostic_status,
-                main_issue,
-                diagnostic_summary,
-                history_summary,
-                dtc_count,
-                dtc_codes,
-                dtc_signature,
-                rpm,
-                speed,
-                coolant_temp,
-                battery_voltage,
-                engine_load,
-                hybrid_soc,
-                hybrid_battery_current,
-                mg1_temp,
-                mg2_temp,
-                mg1_torque,
-                mg2_torque,
-                odometer,
-                fuel_level,
-                vin
-            FROM measurements
-            ORDER BY timestamp DESC, id DESC
-            """
-        )
-        return cursor.fetchall()
+        with self._lock:
+            cursor = self.connection.execute(
+                """
+                SELECT
+                    id,
+                    timestamp,
+                    diagnostic_status,
+                    main_issue,
+                    diagnostic_summary,
+                    history_summary,
+                    dtc_count,
+                    dtc_codes,
+                    dtc_signature,
+                    rpm,
+                    speed,
+                    coolant_temp,
+                    battery_voltage,
+                    engine_load,
+                    hybrid_soc,
+                    hybrid_battery_current,
+                    mg1_temp,
+                    mg2_temp,
+                    mg1_torque,
+                    mg2_torque,
+                    odometer,
+                    fuel_level,
+                    vin
+                FROM measurements
+                ORDER BY timestamp DESC, id DESC
+                """
+            )
+            return cursor.fetchall()
 
     def get_dtc_history(self) -> list[sqlite3.Row]:
-        cursor = self.connection.execute(
-            """
-            SELECT id, timestamp, code, description, severity
-            FROM dtc_codes
-            ORDER BY timestamp DESC, id DESC
-            """
-        )
-        return cursor.fetchall()
+        with self._lock:
+            cursor = self.connection.execute(
+                """
+                SELECT id, timestamp, code, description, severity
+                FROM dtc_codes
+                ORDER BY timestamp DESC, id DESC
+                """
+            )
+            return cursor.fetchall()
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -225,9 +235,10 @@ class Database:
         return self._connection
 
     def close(self):
-        if self._connection is not None:
-            self._connection.close()
-            self._connection = None
+        with self._lock:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
 
     @staticmethod
     def _ensure_measurement_columns(cursor: sqlite3.Cursor):

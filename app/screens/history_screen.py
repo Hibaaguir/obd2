@@ -645,18 +645,18 @@ class HistoryScreen(BaseScreen):
         if parsed is None:
             return "-"
         month_names = {
-            1: "Janv",
-            2: "Fevr",
+            1: "Janvier",
+            2: "Fevrier",
             3: "Mars",
-            4: "Avr",
+            4: "Avril",
             5: "Mai",
             6: "Juin",
-            7: "Juil",
+            7: "Juillet",
             8: "Aout",
-            9: "Sept",
-            10: "Oct",
-            11: "Nov",
-            12: "Dec",
+            9: "Septembre",
+            10: "Octobre",
+            11: "Novembre",
+            12: "Decembre",
         }
         return f"{parsed.day:02d} {month_names.get(parsed.month, '')}\n{parsed.hour:02d}:{parsed.minute:02d}"
 
@@ -690,18 +690,18 @@ class HistoryScreen(BaseScreen):
             return "Hier"
 
         month_names = {
-            1: "Janv",
-            2: "Fevr",
+            1: "Janvier",
+            2: "Fevrier",
             3: "Mars",
-            4: "Avr",
+            4: "Avril",
             5: "Mai",
             6: "Juin",
-            7: "Juil",
+            7: "Juillet",
             8: "Aout",
-            9: "Sept",
-            10: "Oct",
-            11: "Nov",
-            12: "Dec",
+            9: "Septembre",
+            10: "Octobre",
+            11: "Novembre",
+            12: "Decembre",
         }
         return f"{parsed.day:02d} {month_names.get(parsed.month, '')}"
 
@@ -722,18 +722,18 @@ class HistoryScreen(BaseScreen):
             return str(timestamp).strip()
 
         month_names = {
-            1: "Janv",
-            2: "Fevr",
+            1: "Janvier",
+            2: "Fevrier",
             3: "Mars",
-            4: "Avr",
+            4: "Avril",
             5: "Mai",
             6: "Juin",
-            7: "Juil",
+            7: "Juillet",
             8: "Aout",
-            9: "Sept",
-            10: "Oct",
-            11: "Nov",
-            12: "Dec",
+            9: "Septembre",
+            10: "Octobre",
+            11: "Novembre",
+            12: "Decembre",
         }
         month = month_names.get(parsed.month, "")
         return f"{parsed.day:02d} {month} {parsed.year} - {parsed.hour:02d}:{parsed.minute:02d}"

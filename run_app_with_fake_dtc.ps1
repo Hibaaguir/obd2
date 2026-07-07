@@ -31,7 +31,11 @@ function Test-TcpPort {
 Set-Location $root
 
 if (Test-TcpPort -HostName $hostName -Port $port) {
-    Write-Host "Emulateur deja disponible sur $hostName`:$port" -ForegroundColor Yellow
+    throw (
+        "Le port $hostName`:$port est deja occupe. " +
+        "Fermez l'emulateur ou le service OBD deja actif avant de lancer ce script, " +
+        "afin de garantir le scenario fake DTC attendu."
+    )
 } else {
     Write-Host "Demarrage de l'emulateur DTC..." -ForegroundColor Cyan
     $env:PYTHONPATH = $toolsDir
