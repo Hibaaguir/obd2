@@ -41,7 +41,7 @@ if (Test-TcpPort -HostName $hostName -Port $port) {
     $env:PYTHONPATH = $toolsDir
     $emulatorProcess = Start-Process python -ArgumentList @(
         ".\start_fake_dtc_emulator.py"
-    ) -WorkingDirectory $toolsDir -PassThru
+    ) -WorkingDirectory $toolsDir -WindowStyle Hidden -PassThru
 
     $deadline = (Get-Date).AddSeconds($startupTimeoutSeconds)
     do {
@@ -61,4 +61,10 @@ if (Test-TcpPort -HostName $hostName -Port $port) {
 }
 
 Write-Host "Demarrage de l'application..." -ForegroundColor Cyan
-Start-Process python -ArgumentList ".\main.py" -WorkingDirectory $root
+try {
+    & python ".\main.py"
+} finally {
+    if ($emulatorProcess -and -not $emulatorProcess.HasExited) {
+        Stop-Process -Id $emulatorProcess.Id -ErrorAction SilentlyContinue
+    }
+}

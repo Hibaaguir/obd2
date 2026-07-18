@@ -9,7 +9,7 @@ from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.label import MDIcon, MDLabel
 from kivymd.uix.textfield import MDTextField
 
-from app.core.obd_config import OBD_HOST, OBD_PORT
+from app.core.obd_config import OBD_HOST, OBD_PORT, OBD_TIMEOUT
 from app.core.theme import BLUE, PANEL_ALT, PANEL_DARK, TEXT, with_alpha
 from app.screens.base_screen import BaseScreen
 from app.widgets.status_card import StatusCard
@@ -107,6 +107,7 @@ class ConnectionActionButton(MDBoxLayout):
 class HomeScreen(BaseScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self._connect_request_id = 0
         layout = self.build_page()
         layout.spacing = SECTION_SPACING
 
@@ -291,6 +292,8 @@ class HomeScreen(BaseScreen):
         return field
 
     def connect(self, *_):
+        self._connect_request_id += 1
+        request_id = self._connect_request_id
         self.action_button.disabled = True
         self.action_button.set_text("CONNEXION...")
         self.status_card.set_value(
@@ -299,13 +302,27 @@ class HomeScreen(BaseScreen):
         )
         host = self.host_input.text
         port = self.port_input.text
-        Thread(target=self._connect_worker, args=(host, port), daemon=True).start()
+        Thread(target=self._connect_worker, args=(request_id, host, port), daemon=True).start()
+        Clock.schedule_once(
+            lambda *_: self._connect_watchdog(request_id),
+            OBD_TIMEOUT + 2,
+        )
 
-    def _connect_worker(self, host, port):
-        connected = self.app.obd_service.connect(host, port)
-        Clock.schedule_once(lambda *_: self._finish_connect(connected), 0)
+    def _connect_worker(self, request_id, host, port):
+        try:
+            connected = self.app.obd_service.connect(host, port)
+            error_message = ""
+        except Exception as exc:
+            connected = False
+            error_message = str(exc)
+        Clock.schedule_once(
+            lambda *_: self._finish_connect(request_id, connected, error_message),
+            0,
+        )
 
-    def _finish_connect(self, connected):
+    def _finish_connect(self, request_id, connected, error_message=""):
+        if request_id != self._connect_request_id:
+            return
         self.action_button.disabled = False
         if connected:
             service = self.app.obd_service
@@ -314,7 +331,22 @@ class HomeScreen(BaseScreen):
                 f"{service.current_host}:{service.current_port}",
             )
         else:
-            self.status_card.set_value("Non connecte", self.app.obd_service.last_error)
+            helper = self.app.obd_service.last_error or error_message or "Connexion impossible."
+            self.status_card.set_value("Non connecte", helper)
+        self._sync_action_button()
+
+    def _connect_watchdog(self, request_id):
+        if request_id != self._connect_request_id or not self.action_button.disabled:
+            return
+        self.app.obd_service.disconnect()
+        self.status_card.set_value(
+            "Non connecte",
+            (
+                "La connexion a pris trop de temps. "
+                "Verifiez l'emulateur ELM327 puis relancez."
+            ),
+        )
+        self.action_button.disabled = False
         self._sync_action_button()
 
     def disconnect(self, *_):

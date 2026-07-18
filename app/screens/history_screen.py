@@ -16,6 +16,22 @@ from app.screens.base_screen import BaseScreen
 from app.widgets.ui_components import GlowCard
 
 
+MONTH_NAMES = {
+    1: "Janvier",
+    2: "Fevrier",
+    3: "Mars",
+    4: "Avril",
+    5: "Mai",
+    6: "Juin",
+    7: "Juillet",
+    8: "Aout",
+    9: "Septembre",
+    10: "Octobre",
+    11: "Novembre",
+    12: "Decembre",
+}
+
+
 class HistoryScreen(BaseScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -52,7 +68,7 @@ class HistoryScreen(BaseScreen):
         layout.add_widget(self.history_list)
         layout.add_widget(MDLabel(size_hint_y=None, height=dp(96)))
 
-    def refresh(self, mode="measurements"):
+    def refresh(self, _mode="measurements"):
         self.stats_card.clear_widgets()
         self.history_list.clear_widgets()
 
@@ -87,9 +103,10 @@ class HistoryScreen(BaseScreen):
         status = self._status_from_severity(row["diagnostic_status"])
         main_issue = (row["main_issue"] or row["diagnostic_summary"] or "Etat normal").strip()
         summary = self._stored_summary(row)
+        date_text, time_text = self._split_timestamp(row["timestamp"])
         detail_payload = {
-            "date": self._split_timestamp(row["timestamp"])[0],
-            "time": self._split_timestamp(row["timestamp"])[1],
+            "date": date_text,
+            "time": time_text,
             "status": status,
             "dtc_count": self._row_dtc_count(row),
             "rpm_max": self._display_number(row["rpm"]),
@@ -350,38 +367,6 @@ class HistoryScreen(BaseScreen):
                 continue
             rows.append(row)
         return rows
-
-    def _detail_line(self, label, value):
-        row = MDCard(
-            orientation="vertical",
-            adaptive_height=True,
-            padding=(dp(12), dp(10), dp(12), dp(10)),
-            spacing=dp(4),
-            radius=[dp(14)],
-            elevation=0,
-            md_bg_color=with_alpha(BLUE, 0.05),
-            line_color=with_alpha(BORDER, 0.55),
-        )
-        label_widget = MDLabel(
-            text=label,
-            theme_text_color="Custom",
-            text_color=MUTED,
-            font_style="Caption",
-            bold=True,
-            adaptive_height=True,
-        )
-        value_widget = MDLabel(
-            text=value,
-            theme_text_color="Custom",
-            text_color=TEXT,
-            font_style="Subtitle2",
-            adaptive_height=True,
-        )
-        label_widget.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
-        value_widget.bind(width=lambda widget, width: setattr(widget, "text_size", (width, None)))
-        row.add_widget(label_widget)
-        row.add_widget(value_widget)
-        return row
 
     def _dialog_section(self, title, value):
         card = MDCard(
@@ -644,21 +629,7 @@ class HistoryScreen(BaseScreen):
         parsed = HistoryScreen._parse_timestamp(timestamp)
         if parsed is None:
             return "-"
-        month_names = {
-            1: "Janvier",
-            2: "Fevrier",
-            3: "Mars",
-            4: "Avril",
-            5: "Mai",
-            6: "Juin",
-            7: "Juillet",
-            8: "Aout",
-            9: "Septembre",
-            10: "Octobre",
-            11: "Novembre",
-            12: "Decembre",
-        }
-        return f"{parsed.day:02d} {month_names.get(parsed.month, '')}\n{parsed.hour:02d}:{parsed.minute:02d}"
+        return f"{parsed.day:02d} {MONTH_NAMES.get(parsed.month, '')}\n{parsed.hour:02d}:{parsed.minute:02d}"
 
     @staticmethod
     def _status_from_severity(severity):
@@ -689,21 +660,7 @@ class HistoryScreen(BaseScreen):
         if parsed.date().toordinal() == today.toordinal() - 1:
             return "Hier"
 
-        month_names = {
-            1: "Janvier",
-            2: "Fevrier",
-            3: "Mars",
-            4: "Avril",
-            5: "Mai",
-            6: "Juin",
-            7: "Juillet",
-            8: "Aout",
-            9: "Septembre",
-            10: "Octobre",
-            11: "Novembre",
-            12: "Decembre",
-        }
-        return f"{parsed.day:02d} {month_names.get(parsed.month, '')}"
+        return f"{parsed.day:02d} {MONTH_NAMES.get(parsed.month, '')}"
 
     @staticmethod
     def _format_history_time(timestamp):
@@ -721,21 +678,7 @@ class HistoryScreen(BaseScreen):
         if parsed is None:
             return str(timestamp).strip()
 
-        month_names = {
-            1: "Janvier",
-            2: "Fevrier",
-            3: "Mars",
-            4: "Avril",
-            5: "Mai",
-            6: "Juin",
-            7: "Juillet",
-            8: "Aout",
-            9: "Septembre",
-            10: "Octobre",
-            11: "Novembre",
-            12: "Decembre",
-        }
-        month = month_names.get(parsed.month, "")
+        month = MONTH_NAMES.get(parsed.month, "")
         return f"{parsed.day:02d} {month} {parsed.year} - {parsed.hour:02d}:{parsed.minute:02d}"
 
     @staticmethod
@@ -755,13 +698,6 @@ class HistoryScreen(BaseScreen):
             except ValueError:
                 continue
         return None
-
-    def _measurement_details_text(self, row):
-        return (
-            f"DTC: {self._row_dtc_count(row)} • "
-            f"RPM: {self._display_number(row['rpm'])} • "
-            f"Temp: {self._display_number(row['coolant_temp'])}°C"
-        )
 
     def _date_header(self, label):
         row = MDBoxLayout(size_hint_y=None, height=dp(24), padding=(dp(2), dp(6), 0, 0))

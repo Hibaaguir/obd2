@@ -11,6 +11,25 @@ pip install -r requirements.txt
 python main.py
 ```
 
+## Partage du projet
+
+Pour recuperer le projet sur un autre PC et lancer directement le mode test avec faux DTC :
+
+```bash
+git clone https://github.com/Hibaaguir/obd2.git
+cd obd2
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+powershell -ExecutionPolicy Bypass -File .\run_app_with_fake_dtc.ps1
+```
+
+Dans ce mode :
+
+- `run_app_with_fake_dtc.ps1` demarre l'emulateur fake DTC ;
+- l'emulateur ecoute sur `127.0.0.1:35000` ;
+- puis l'application se lance et peut s'y connecter.
+
 ## Notes
 
 - L'application n'integre pas de mode simulation.
